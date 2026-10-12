@@ -75,10 +75,30 @@ function insights(){const c=calc(),o=[],cats={};c.cur.t.filter(x=>x.t=='expense'
 const snap=()=>{const c=calc(),cats={};c.cur.t.filter(x=>x.t=='expense').forEach(x=>cats[x.c]=(cats[x.c]||0)+x.a);
  return JSON.stringify({currency:'INR',month:{income:c.cur.inc,expenses:c.cur.exp,invested:c.cur.inv,byCategory:cats},avgMonthlyExpense3m:Math.round(c.avg),netWorth:Math.round(c.nw),totalCash:Math.round(c.liquid),invested:c.invested,emergencyBuffer3m:Math.round(c.buffer),billsNext30d:c.bills,deployable:Math.round(c.deploy),risk:S.risk,banks:S.banks.map((b,i)=>({name:b.n,balance:bal(i),interestPct:b.rate,cardCashbackPct:b.cash,minBalance:b.min,role:b.role})),bills:S.bills.map(b=>({...b,bank:S.banks[b.b]?.n})),goals:S.goals,loans:S.loans.map(l=>({...l,bank:S.banks[l.b]?.n})),monthlyEMI:c.emi,totalLoanOutstanding:c.debt,dailyBudget:S.dl,todaySpend:dayTotal(ld())})};
 function md(t){return esc(t).replace(/\*\*(.+?)\*\*/g,'<b>$1</b>').replace(/^#+\s*(.+)$/gm,'<b>$1</b>').replace(/^[-*]\s+/gm,'• ').replace(/\n/g,'<br>')}
-async function ask(q,out){const s=await (window.claude?.use?.('sample')??null);if(!s){out.textContent='AI is not available in this view.';return}
- const p=`You are a concise, practical personal-finance advisor for an Indian user (amounts in INR). Use ONLY the data given; be specific with numbers; use short bullets and bold key actions; end with one-line caution that this is educational, not licensed advice. Keep under 220 words.\n\nDATA: ${snap()}\n\nQUESTION: ${q}`;
- out.textContent='Thinking…';try{await s(p,{cache:false,onText:({text})=>{out.innerHTML=md(text)}})}catch(e){out.textContent=e&&e.code=='not_granted'?'AI permission was declined.':'AI is busy – try again shortly.'}}
-function autoAssign(){const b=S.banks;if(!b.length)return;b.forEach(x=>x.role='Backup');
+async function ask(q, out) {
+  out.textContent = 'Thinking…';
+  
+  const prompt = `You are a concise, practical personal-finance advisor for an Indian user (amounts in INR). Use ONLY the data given; be specific with numbers; use short bullets and bold key actions; end with one-line caution that this is educational, not licensed advice. Keep under 220 words.\n\nDATA: ${snap()}\n\nQUESTION: ${q}`;
+
+  try {
+    const res = await fetch('/api/openai', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt })
+    });
+
+    const data = await res.json();
+    
+    if (res.ok && data.response) {
+      out.innerHTML = md(data.response);
+    } else {
+      out.textContent = data.error || 'Failed to generate response.';
+    }
+  } catch (e) {
+    out.textContent = 'Error connecting to server.';
+  }
+}
+ function autoAssign(){const b=S.banks;if(!b.length)return;b.forEach(x=>x.role='Backup');
  const ex=b.reduce((m,x)=>x.cash>m.cash?x:m,b[0]);ex.role='Expense';let r=b.filter(x=>x.role=='Backup');
  if(r.length){const s=r.reduce((m,x)=>x.rate>m.rate?x:m,r[0]);s.role=r.length>2?'Savings':'Investment';r=r.filter(x=>x!==s);
   if(r.length){const a=r.reduce((m,x,)=>bal(S.banks.indexOf(x))>bal(S.banks.indexOf(m))?x:m,r[0]);a.role='Auto-debit';r=r.filter(x=>x!==a);if(r.length)r[0].role='Savings'}}
