@@ -5,7 +5,6 @@ export default async function handler(req, res) {
     const { prompt } = req.body;
     if (!prompt) return res.status(400).json({ error: "No prompt provided" });
 
-    // Calling Groq's free OpenAI-compatible API
     const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -13,7 +12,7 @@ export default async function handler(req, res) {
         "Authorization": `Bearer ${process.env.GROQ_API_KEY}`
       },
       body: JSON.stringify({
-        model: "llama-3.3-70b-versatile", // Fast, free, highly capable model
+        model: "openai/gpt-oss-20b",
         messages: [{ role: "user", content: prompt }]
       })
     });
