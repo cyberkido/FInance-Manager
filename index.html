@@ -43,7 +43,7 @@ label{display:block;font-size:12px;color:var(--mu);margin:10px 0 4px}input,selec
 <body>
 <div id="app"></div>
 <script>
-const $=s=>document.querySelector(s),K_ACC='fm_accounts_v9',ld=()=>{const d=new Date();return new Date(d.getTime()-d.getTimezoneOffset()*6e4).toISOString().slice(0,10)};
+const $=s=>document.querySelector(s),K_ACC='fm_accounts_v10',ld=()=>{const d=new Date();return new Date(d.getTime()-d.getTimezoneOffset()*6e4).toISOString().slice(0,10)};
 const fmt=n=>(n<0?'-':'')+'₹'+Math.abs(Math.round(n)).toLocaleString('en-IN');
 const esc=s=>String(s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const iso=d=>d.toISOString().slice(0,10),mk=d=>d.slice(0,7);
@@ -52,7 +52,7 @@ const ROLES=['Expense','Savings','Investment','Auto-debit','Backup'];
 const RISK={conservative:[['Liquid fund / FD',45],['Debt / PPF',30],['Gold',15],['Index fund SIP',10]],balanced:[['Liquid fund / FD',20],['Debt / PPF',20],['Gold',15],['Index fund SIP',45]],aggressive:[['Liquid fund / FD',10],['Gold',10],['Index fund SIP',55],['Flexi/Mid-cap fund',25]]};
 const AC=['#6c5ce7','#00b8a0','#f2a31b','#ef476f','#4aa8ff'];
 
-// TOTP (Authenticator App) Algorithm
+// TOTP Algorithm
 const B32_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
 function generateBase32Secret(length = 16) {
   let secret = '';
@@ -113,7 +113,7 @@ function seed(){
     termInsurance:{n:'Term Life Cover', premium:1800, sumInsured:10000000, b:0},
     investments:[
       {id:'inv3', n:'Index Fund SIP', a:5000, type:'SIP / Equity', rate:12, val:60000, invYears:10, waitYears:10, b:2},
-      {id:'inv4', n:'PPF Monthly Contribution', a:3000, type:'PPF / Debt', rate:7.1, val:45000, invYears:15, waitYears:5, b:0}
+      {id:'inv4', n:'KSFE Chitty / Post Office', a:0, type:'Lumpsum / Fixed Maturity', rate:8, val:100000, maturityVal:250000, waitYears:3, b:0}
     ],
     goals:[{n:'Emergency fund',t:150000,s:60000},{n:'Travel',t:80000,s:22000}],
     loans:[{n:'Car loan',orig:600000,out:380000,rate:9.2,emi:14500,day:7,b:0},{n:'Personal loan',orig:200000,out:0,rate:13,emi:7200,day:15,b:0}],
@@ -166,7 +166,7 @@ function calc(){
   liquid=(S?S.banks:[]).reduce((s,_,i)=>s+bal(i),0),
   investedVal=(S?S.investments:[]).reduce((s,inv)=>s+(inv.val||0),0) + sum((S?S.tx:[]).filter(x=>x.t=='invest')),
   insCommitment = (S.healthInsurance?.premium || 0) + (S.termInsurance?.premium || 0),
-  sipCommitment = (S?S.investments:[]).reduce((s,inv)=>s+(inv.a||0),0),
+  sipCommitment = (S?S.investments:[]).filter(inv => inv.type !== 'Lumpsum / Fixed Maturity').reduce((s,inv)=>s+(inv.a||0),0),
   monthlyInvestCommitment = insCommitment + sipCommitment,
   bills=allBills().filter(b=>days(nextDue(b))<=30).reduce((s,b)=>s+b.a,0),buffer=avg*3;
   
@@ -262,13 +262,13 @@ function banks(){
 function invest(){
   const c=calc(), invs=S.investments||[];
   
-  // Filter investments for projection calculation based on user selection
+  // Filter investments based on dropdown selection
   const filteredInvs = invs.filter(inv => {
     if(projTypeFilter === 'All') return true;
     return inv.type === projTypeFilter;
   });
 
-  // Calculate filtered future corpus using Investment Years (active SIP) and Waiting/Holding Years (growth-only phase)
+  // Calculate filtered projected future corpus
   let totalProjectedCorpus = 0;
   let totalCurrentVal = 0;
   let totalMonthlySIP = 0;
@@ -276,26 +276,32 @@ function invest(){
   filteredInvs.forEach(inv => {
     totalCurrentVal += (inv.val || 0);
     totalMonthlySIP += (inv.a || 0);
-    const invYears = Math.max(0, inv.invYears || 5);
-    const waitYears = Math.max(0, inv.waitYears || 5);
-    const r = (inv.rate || 10) / 100 / 12;
 
-    // Phase 1: Active investing for invYears
-    const months1 = invYears * 12;
-    let futureVal1 = (inv.val || 0) * Math.pow(1 + r, months1);
-    if(r > 0) futureVal1 += (inv.a || 0) * ((Math.pow(1 + r, months1) - 1) / r);
-    else futureVal1 += (inv.val || 0) + (inv.a || 0) * months1;
+    if(inv.type === 'Lumpsum / Fixed Maturity') {
+      // If user provided a specific expected maturity/return amount, use it or compound principal
+      const waitYears = Math.max(0, inv.waitYears || 3);
+      const r = (inv.rate || 8) / 100;
+      const maturity = inv.maturityVal > 0 ? inv.maturityVal : ((inv.val || 0) * Math.pow(1 + r, waitYears));
+      totalProjectedCorpus += maturity;
+    } else {
+      const invYears = Math.max(0, inv.invYears || 10);
+      const waitYears = Math.max(0, inv.waitYears || 10);
+      const r = (inv.rate || 12) / 100 / 12;
 
-    // Phase 2: Waiting/Holding period for waitYears (no new SIP, only compounding)
-    const months2 = waitYears * 12;
-    const finalVal = futureVal1 * Math.pow(1 + r, months2);
-    totalProjectedCorpus += finalVal;
+      const months1 = invYears * 12;
+      let futureVal1 = (inv.val || 0) * Math.pow(1 + r, months1);
+      if(r > 0) futureVal1 += (inv.a || 0) * ((Math.pow(1 + r, months1) - 1) / r);
+      else futureVal1 += (inv.val || 0) + (inv.a || 0) * months1;
+
+      const months2 = waitYears * 12;
+      const finalVal = futureVal1 * Math.pow(1 + r, months2);
+      totalProjectedCorpus += finalVal;
+    }
   });
 
-  // Monthly Outflows breakdown
   const sipOutflow = invs.filter(i=>i.type=='SIP / Equity').reduce((s,i)=>s+i.a,0);
   const ppfOutflow = invs.filter(i=>i.type=='PPF / Debt').reduce((s,i)=>s+i.a,0);
-  const fdOutflow = invs.filter(i=>i.type=='FD / RD').reduce((s,i)=>s+i.a,0);
+  const lumpsumOutflow = invs.filter(i=>i.type=='Lumpsum / Fixed Maturity').reduce((s,i)=>s+i.a,0);
 
   const health = S.healthInsurance || {n:'Health Insurance', premium:0, sumInsured:0};
   const term = S.termInsurance || {n:'Term Insurance', premium:0, sumInsured:0};
@@ -316,7 +322,7 @@ function invest(){
   </div>
 
   <div class="card">
-    <h2>📊 Monthly Outflow Breakdown (SIPs & Insurance)</h2>
+    <h2>📊 Monthly Outflow Breakdown</h2>
     <div class="grid3" style="text-align:center;margin-top:10px">
       <div class="stat"><small>SIP / Equity</small><b>${fmt(sipOutflow)}</b></div>
       <div class="stat"><small>PPF / Debt</small><b>${fmt(ppfOutflow)}</b></div>
@@ -326,14 +332,14 @@ function invest(){
   
   <div class="card">
     <div class="row"><h2>📈 Filtered Portfolio Projection</h2></div>
-    <div class="row" style="margin:8px 0"><small>Filter Category:</small><select onchange="projTypeFilter=this.value;render()" style="width:auto"><option ${projTypeFilter=='All'?'selected':''}>All Investments</option><option ${projTypeFilter=='SIP / Equity'?'selected':''}>SIP / Equity</option><option ${projTypeFilter=='PPF / Debt'?'selected':''}>PPF / Debt</option><option ${projTypeFilter=='FD / RD'?'selected':''}>FD / RD</option></select></div>
+    <div class="row" style="margin:8px 0"><small>Filter Category:</small><select onchange="projTypeFilter=this.value;render()" style="width:auto"><option ${projTypeFilter=='All'?'selected':''}>All Investments</option><option ${projTypeFilter=='SIP / Equity'?'selected':''}>SIP / Equity</option><option ${projTypeFilter=='PPF / Debt'?'selected':''}>PPF / Debt</option><option ${projTypeFilter=='FD / RD'?'selected':''}>FD / RD</option><option ${projTypeFilter=='Lumpsum / Fixed Maturity'?'selected':''}>Lumpsum / Fixed Maturity (KSFE/PostOffice)</option></select></div>
     <div class="row" style="margin:10px 0"><div><small>Current Filtered Corpus</small><br><b>${fmt(totalCurrentVal)}</b></div><div><small>Monthly SIP (Filtered)</small><br><b>${fmt(totalMonthlySIP)}</b></div><div><small>Projected Future Value</small><br><b class="pos" style="font-size:18px">${fmt(totalProjectedCorpus)}</b></div></div>
     <div class="bar"><i style="width:100%;background:linear-gradient(90deg,#6c5ce7,#00b8a0)"></i></div>
-    <small class="mu" style="margin-top:6px;display:block">Calculated dynamically based on active investing duration & waiting holding periods for each asset.</small>
+    <small class="mu" style="margin-top:6px;display:block">Calculated based on active SIP durations, waiting holding periods, and fixed maturity returns.</small>
   </div>
 
-  <div class="row" style="margin-bottom:10px"><h2 style="margin:0">📈 Wealth Investments & SIPs</h2><button class="btn sm" onclick="A.addInvestment()">+ Add Investment</button></div>
-  ${invs.map((inv, i)=>`<div class="card"><div class="row"><div><b>${esc(inv.n)}</b> <span class="chip g">${esc(inv.type||'Investment')}</span><br><small>Monthly SIP: <b>${fmt(inv.a)}</b> · Return: ${inv.rate||0}% p.a. · Invest: ${inv.invYears||5} yrs · Wait: ${inv.waitYears||5} yrs</small></div><div style="text-align:right"><div style="font-size:18px;font-weight:700">${fmt(inv.val||0)}</div><small>Current Corpus</small></div></div><div class="row" style="margin-top:10px"><button class="btn s sm" onclick="A.payInvestment(${i})">Mark Paid This Month</button><button class="btn s sm" onclick="A.editInvestment(${i})">✏️ Edit</button><button class="ic" onclick="A.delInvestment(${i})">Remove</button></div></div>`).join('')||'<p class="mu">No investments added yet.</p>'}
+  <div class="row" style="margin-bottom:10px"><h2 style="margin:0">📈 Wealth Investments & Schemes</h2><button class="btn sm" onclick="A.addInvestment()">+ Add Investment</button></div>
+  ${invs.map((inv, i)=>`<div class="card"><div class="row"><div><b>${esc(inv.n)}</b> <span class="chip g">${esc(inv.type||'Investment')}</span><br><small>${inv.type=='Lumpsum / Fixed Maturity'?'Maturity Return: '+fmt(inv.maturityVal||0):'Monthly SIP: '+fmt(inv.a)+' · Return: '+(inv.rate||0)+'% p.a. · Invest: '+(inv.invYears||10)+' yrs · Wait: '+(inv.waitYears||10)+' yrs'}</small></div><div style="text-align:right"><div style="font-size:18px;font-weight:700">${fmt(inv.val||0)}</div><small>Current Corpus</small></div></div><div class="row" style="margin-top:10px"><button class="btn s sm" onclick="A.payInvestment(${i})">Mark Paid This Month</button><button class="btn s sm" onclick="A.editInvestment(${i})">✏️ Edit</button><button class="ic" onclick="A.delInvestment(${i})">Remove</button></div></div>`).join('')||'<p class="mu">No investments added yet.</p>'}
   
   <div class="card"><div class="row"><h2>🎯 Future Goals</h2><button class="btn s sm" onclick="A.addGoal()">+ Add Goal</button></div>${S.goals.map((g,i)=>{const p=Math.min(100,g.s/g.t*100);return`<div style="margin:12px 0"><div class="row"><b>${esc(g.n)}</b><div><small>${fmt(g.s)} / ${fmt(g.t)}</small> <button class="ic" onclick="A.fund(${i})">＋</button><button class="ic" onclick="A.del('goals',${i})">✕</button></div></div><div class="bar"><i style="width:${p}%;background:var(--ac2)"></i></div></div>`}).join('')||'<p class="mu">Set a goal.</p>'}</div>`;
 }
@@ -410,17 +416,18 @@ const A = {
   limit(){ form('Daily budget',[{k:'a',l:'Daily limit (₹)',t:'number',v:S.dl}],v=>{if(v.a>0)S.dl=v.a}); },
   addInvestment(){
     if(!S.banks.length)return A.addBank();
-    form('Add Investment / SIP', [
-      {k:'n', l:'Investment Name (e.g. Nifty 50 SIP)'},
-      {k:'a', l:'Monthly Outflow / SIP (₹)', t:'number'},
-      {k:'type', l:'Category Type', o:[['SIP / Equity','SIP / Equity'],['PPF / Debt','PPF / Debt'],['FD / RD','FD / RD']]},
-      {k:'val', l:'Current Invested Corpus Amount (₹)', t:'number', v:0},
-      {k:'rate', l:'Expected Returns % p.a.', t:'number', v:12},
-      {k:'invYears', l:'Investing Duration (Active SIP Years)', t:'number', v:10},
-      {k:'waitYears', l:'Waiting / Holding Period (Growth Years)', t:'number', v:10},
+    form('Add Investment / Scheme', [
+      {k:'n', l:'Investment Name (e.g. Nifty SIP, KSFE Chitty, PostOffice)'},
+      {k:'type', l:'Investment Type', o:[['SIP / Equity','SIP / Equity'],['PPF / Debt','PPF / Debt'],['FD / RD','FD / RD'],['Lumpsum / Fixed Maturity','Lumpsum / Fixed Maturity (KSFE, LIC, PostOffice)']]},
+      {k:'val', l:'Currently Invested Amount / Corpus (₹)', t:'number', v:0},
+      {k:'a', l:'Monthly SIP Outflow (₹ if applicable)', t:'number', v:0},
+      {k:'maturityVal', l:'Expected Maturity / Return Amount (₹ if known)', t:'number', v:0},
+      {k:'rate', l:'Expected Return % p.a. (if not fixed maturity)', t:'number', v:12},
+      {k:'invYears', l:'Active Investing Duration (Years)', t:'number', v:5},
+      {k:'waitYears', l:'Waiting / Holding Period (Years)', t:'number', v:5},
       {k:'b', l:'Debited Bank', o:bankOpts()}
     ], v=>{
-      if(v.n && v.a>=0){
+      if(v.n){
         S.investments.push({id:'inv'+Date.now(), ...v, b:+v.b});
         save(); render();
       }
@@ -430,22 +437,28 @@ const A = {
     const inv = S.investments[i];
     form('Edit '+esc(inv.n), [
       {k:'n', l:'Name', v:inv.n},
-      {k:'a', l:'Monthly SIP (₹)', t:'number', v:inv.a},
       {k:'val', l:'Current Corpus Amount (₹)', t:'number', v:inv.val||0},
+      {k:'a', l:'Monthly SIP (₹)', t:'number', v:inv.a||0},
+      {k:'maturityVal', l:'Expected Maturity / Return Amount (₹)', t:'number', v:inv.maturityVal||0},
       {k:'rate', l:'Expected Return % p.a.', t:'number', v:inv.rate||12},
-      {k:'invYears', l:'Investing Duration (Years)', t:'number', v:inv.invYears||10},
-      {k:'waitYears', l:'Waiting / Holding Period (Years)', t:'number', v:inv.waitYears||10}
+      {k:'invYears', l:'Investing Duration (Years)', t:'number', v:inv.invYears||5},
+      {k:'waitYears', l:'Waiting / Holding Period (Years)', t:'number', v:inv.waitYears||5}
     ], v=>{
-      S.investments[i].n = v.n; S.investments[i].a = v.a; S.investments[i].val = v.val; 
-      S.investments[i].rate = v.rate; S.investments[i].invYears = v.invYears; S.investments[i].waitYears = v.waitYears;
+      S.investments[i].n = v.n; S.investments[i].val = v.val; S.investments[i].a = v.a;
+      S.investments[i].maturityVal = v.maturityVal; S.investments[i].rate = v.rate; 
+      S.investments[i].invYears = v.invYears; S.investments[i].waitYears = v.waitYears;
       save(); render();
     });
   },
   payInvestment(i){
     const inv = S.investments[i];
-    inv.val = (inv.val || 0) + inv.a;
-    S.tx.push({id:'t'+Date.now(), t:'invest', a:inv.a, c:'Investments', b:inv.b, d:ld(), n:inv.n+' SIP'});
-    save(); render();
+    if(inv.a > 0) {
+      inv.val = (inv.val || 0) + inv.a;
+      S.tx.push({id:'t'+Date.now(), t:'invest', a:inv.a, c:'Investments', b:inv.b, d:ld(), n:inv.n+' SIP'});
+      save(); render();
+    } else {
+      alert('No monthly SIP amount set for this investment.');
+    }
   },
   delInvestment(i){ S.investments.splice(i,1); save(); render(); },
   addLoan(){
