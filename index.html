@@ -43,22 +43,20 @@ label{display:block;font-size:12px;color:var(--mu);margin:10px 0 4px}input,selec
 <body>
 <div id="app"></div>
 <script>
-const $=s=>document.querySelector(s),K_ACC='fm_accounts_v4',ld=()=>{const d=new Date();return new Date(d.getTime()-d.getTimezoneOffset()*6e4).toISOString().slice(0,10)};
+const $=s=>document.querySelector(s),K_ACC='fm_accounts_v5',ld=()=>{const d=new Date();return new Date(d.getTime()-d.getTimezoneOffset()*6e4).toISOString().slice(0,10)};
 const fmt=n=>(n<0?'-':'')+'₹'+Math.abs(Math.round(n)).toLocaleString('en-IN');
 const esc=s=>String(s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const iso=d=>d.toISOString().slice(0,10),mk=d=>d.slice(0,7);
-const CATS={Food:'#ff7675',Petrol:'#00cec9',Transport:'#74b9ff',Rent:'#a29bfe',Shopping:'#fd79a8',Bills:'#fdcb6e',Health:'#55efc4',Fun:'#e17055',EMI:'#e84393',Other:'#b2bec3'};
+const CATS={Food:'#ff7675',Petrol:'#00cec9',Transport:'#74b9ff',Rent:'#a29bfe',Shopping:'#fd79a8',Bills:'#fdcb6e',Health:'#55efc4',Fun:'#e17055',EMI:'#e84393',Investments:'#00b8a0',Other:'#b2bec3'};
 const ROLES=['Expense','Savings','Investment','Auto-debit','Backup'];
 const RISK={conservative:[['Liquid fund / FD',45],['Debt / PPF',30],['Gold',15],['Index fund SIP',10]],balanced:[['Liquid fund / FD',20],['Debt / PPF',20],['Gold',15],['Index fund SIP',45]],aggressive:[['Liquid fund / FD',10],['Gold',10],['Index fund SIP',55],['Flexi/Mid-cap fund',25]]};
 const AC=['#6c5ce7','#00b8a0','#f2a31b','#ef476f','#4aa8ff'];
 
-// TOTP (Authenticator App) Algorithm in Client JavaScript
+// TOTP (Authenticator App) Algorithm
 const B32_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
 function generateBase32Secret(length = 16) {
   let secret = '';
-  for (let i = 0; i < length; i++) {
-    secret += B32_CHARS.charAt(Math.floor(Math.random() * B32_CHARS.length));
-  }
+  for (let i = 0; i < length; i++) { secret += B32_CHARS.charAt(Math.floor(Math.random() * B32_CHARS.length)); }
   return secret;
 }
 function base32ToBytes(base32) {
@@ -67,9 +65,7 @@ function base32ToBytes(base32) {
     let val = B32_CHARS.indexOf(base32.charAt(i).toUpperCase());
     if (val !== -1) bits += val.toString(2).padStart(5, '0');
   }
-  for (let i = 0; i + 8 <= bits.length; i += 8) {
-    bytes.push(parseInt(bits.substr(i, 8), 2));
-  }
+  for (let i = 0; i + 8 <= bits.length; i += 8) { bytes.push(parseInt(bits.substr(i, 8), 2)); }
   return new Uint8Array(bytes);
 }
 async function getTotpToken(secret, timeStep = 30) {
@@ -105,12 +101,18 @@ function seed(){
       const day=Math.min(27,3+i*3);if(m===0&&day>now.getDate())return;
       tx.push({id:c+m,t:'expense',a:Math.round(v*(.8+rnd()*.5)),c,b:i%2?1:0,d:`${y}-${mo}-${String(day).padStart(2,'0')}`,n:c})
     });
-    if(m>0)tx.push({id:'v'+m,t:'invest',a:5000,c:'Index fund SIP',b:2,d:`${y}-${mo}-05`,n:'SIP'})
+    if(m>0)tx.push({id:'v'+m,t:'invest',a:5000,c:'Index Fund SIP',b:2,d:`${y}-${mo}-05`,n:'Nifty 50 SIP'})
   }
   return{
     tx,risk:'balanced',sample:true,
     banks:[{n:'Bank A – Salary',open:60000,rate:3,cash:0,min:10000,role:'Auto-debit'},{n:'Bank B – Cashback Card',open:20000,rate:2.7,cash:5,min:0,role:'Expense'},{n:'Bank C – High Interest',open:80000,rate:7,cash:0,min:0,role:'Savings'}],
-    bills:[{n:'Rent',a:15000,day:2,b:0},{n:'Phone & Internet',a:999,day:12,b:0},{n:'Insurance premium',a:2100,day:18,b:0},{n:'Index fund SIP',a:5000,day:5,b:2}],
+    bills:[{n:'Rent',a:15000,day:2,b:0},{n:'Phone & Internet',a:999,day:12,b:0}],
+    investments:[
+      {id:'inv1', n:'Health Insurance Premium', a:2500, type:'Insurance', rate:0, val:25000, b:0},
+      {id:'inv2', n:'Term Insurance Premium', a:1800, type:'Insurance', rate:0, val:18000, b:0},
+      {id:'inv3', n:'Index Fund SIP', a:5000, type:'SIP / Equity', rate:12, val:60000, b:2},
+      {id:'inv4', n:'PPF Monthly Contribution', a:3000, type:'PPF / Debt', rate:7.1, val:45000, b:0}
+    ],
     goals:[{n:'Emergency fund',t:150000,s:60000},{n:'Travel',t:80000,s:22000}],
     loans:[{n:'Car loan',orig:600000,out:380000,rate:9.2,emi:14500,day:7,b:0},{n:'Personal loan',orig:200000,out:0,rate:13,emi:7200,day:15,b:0}],
     dl:1200,
@@ -134,7 +136,7 @@ function initAccounts(){
 function loadState(){
   try{ S = JSON.parse(localStorage.getItem('fm_state_' + currentAccId)); }catch(e){ S = null; }
   if(!S){ S = seed(); }
-  S.loans = S.loans || []; S.dl = S.dl || 1200;
+  S.loans = S.loans || []; S.investments = S.investments || []; S.dl = S.dl || 1200;
   S.budgets = S.budgets || {Food:10000,Petrol:4000,Transport:5000,Shopping:7000,Bills:4000,Health:2000,Fun:4000,Rent:15000};
 }
 
@@ -151,31 +153,32 @@ const bal=i=>S&&S.banks[i]?S.banks[i].open+S.tx.filter(x=>x.b==i).reduce((s,x)=>
 const sum=a=>a.reduce((s,x)=>s+x.a,0),cm=mk(ld());
 function months(n){const o=[],now=new Date();for(let i=n-1;i>=0;i--){const d=new Date(now.getFullYear(),now.getMonth()-i,1);o.push({k:mk(iso(new Date(d.getTime()-d.getTimezoneOffset()*6e4))),l:d.toLocaleString('en',{month:'short'})})}return o}
 function M(k){const t=(S?S.tx:[]).filter(x=>mk(x.d)==k);return{inc:sum(t.filter(x=>x.t=='income')),exp:sum(t.filter(x=>x.t=='expense')),inv:sum(t.filter(x=>x.t=='invest')),t}}
-function nextDue(b){const n=new Date(),d=new Date(n.getFullYear(),n.getMonth(),b.day);if(d<new Date(n.getFullYear(),n.getMonth(),n.getDate()))d.setMonth(d.getMonth()+1);return d}
+function nextDue(b){const n=new Date(),d=new Date(n.getFullYear(),n.getMonth(),b.day||5);if(d<new Date(n.getFullYear(),n.getMonth(),n.getDate()))d.setMonth(d.getMonth()+1);return d}
 const days=d=>Math.round((d-new Date(new Date().setHours(0,0,0,0)))/864e5);
 const allBills=()=>(S?S.bills:[]).concat((S?S.loans:[]).filter(l=>l.out>0).map(l=>({n:l.n+' EMI',a:l.emi,day:l.day,b:l.b,loan:1})));
 
 function calc(){
   const cur=M(cm),ms=months(4).slice(0,3).map(m=>M(m.k).exp).filter(x=>x>0),avg=ms.length?ms.reduce((a,b)=>a+b)/ms.length:cur.exp,
-  liquid=(S?S.banks:[]).reduce((s,_,i)=>s+bal(i),0),invested=sum((S?S.tx:[]).filter(x=>x.t=='invest')),bills=allBills().filter(b=>days(nextDue(b))<=30).reduce((s,b)=>s+b.a,0),buffer=avg*3;
-  return{cur,avg,liquid,invested,bills,buffer,deploy:liquid-buffer-bills,debt:(S?S.loans:[]).reduce((s,l)=>s+l.out,0),emi:(S?S.loans:[]).filter(l=>l.out>0).reduce((s,l)=>s+l.emi,0),nw:liquid+invested-(S?S.loans:[]).reduce((s,l)=>s+l.out,0),rate:cur.inc?Math.max(0,(cur.inc-cur.exp)/cur.inc*100):0}
-}
-
-function insights(){
-  const c=calc(),o=[],cats={};c.cur.t.filter(x=>x.t=='expense').forEach(x=>cats[x.c]=(cats[x.c]||0)+x.a);
-  const top=Object.entries(cats).sort((a,b)=>b[1]-a[1]).filter(x=>x[0]!='Rent')[0],ps=months(2),prev=M(ps[0].k).exp;
-  if(c.cur.inc)o.push(c.rate>=30?['g',`Great savings rate: ${c.rate.toFixed(0)}% of income this month.`]:c.rate>=15?['w',`Savings rate is ${c.rate.toFixed(0)}% – aim for 30% by trimming ${top?top[0]:'discretionary'} spend.`]:['r',`Savings rate only ${c.rate.toFixed(0)}% – review spending now.`]);
-  if(top)o.push(['w',`Biggest flexible category: ${top[0]} (${fmt(top[1])}).`]);
-  if(prev&&c.cur.exp>prev*1.1)o.push(['r',`Spending is up ${((c.cur.exp/prev-1)*100).toFixed(0)}% vs last month.`]);
-  if(c.deploy>5000)o.push(['g',`You can deploy about ${fmt(c.deploy)} buffer surplus.`]);
-  return o;
+  liquid=(S?S.banks:[]).reduce((s,_,i)=>s+bal(i),0),
+  investedVal=(S?S.investments:[]).reduce((s,inv)=>s+(inv.val||0),0) + sum((S?S.tx:[]).filter(x=>x.t=='invest')),
+  monthlyInvestCommitment=(S?S.investments:[]).reduce((s,inv)=>s+(inv.a||0),0),
+  bills=allBills().filter(b=>days(nextDue(b))<=30).reduce((s,b)=>s+b.a,0),buffer=avg*3;
+  
+  return{
+    cur,avg,liquid,invested:investedVal,monthlyInvestCommitment,bills,buffer,
+    deploy:liquid-buffer-bills,
+    debt:(S?S.loans:[]).reduce((s,l)=>s+l.out,0),
+    emi:(S?S.loans:[]).filter(l=>l.out>0).reduce((s,l)=>s+l.emi,0),
+    nw:liquid+investedVal-(S?S.loans:[]).reduce((s,l)=>s+l.out,0),
+    rate:cur.inc?Math.max(0,(cur.inc-cur.exp)/cur.inc*100):0
+  }
 }
 
 function categoryBalancesWidget(){
   const c=calc().cur, spent={Food:0, Petrol:0, Fun:0};
   c.t.filter(x=>x.t=='expense').forEach(x=>{ if(spent[x.c]!==undefined) spent[x.c]+=x.a; });
   const foodB=S.budgets.Food||10000, petrolB=S.budgets.Petrol||4000, funB=S.budgets.Fun||4000;
-  return `<div class="card"><h2>⛽ Key Expense Allowances</h2>
+  return `<div class="card"><h2>⛽ Monthly Expense Allowances</h2>
   <div class="grid3">
     <div class="stat"><small>Petrol Bal</small><b>${fmt(petrolB - spent.Petrol)}</b><small class="mu">Spent: ${fmt(spent.Petrol)}</small></div>
     <div class="stat"><small>Food Bal</small><b>${fmt(foodB - spent.Food)}</b><small class="mu">Spent: ${fmt(spent.Food)}</small></div>
@@ -183,34 +186,18 @@ function categoryBalancesWidget(){
   </div></div>`;
 }
 
-function budgetTracker(){
-  const c=calc().cur, spent={};
-  c.t.filter(x=>x.t=='expense').forEach(x=>spent[x.c]=(spent[x.c]||0)+x.a);
-  const cats = Object.keys(CATS);
-  let totB = 0, totS = 0;
-  cats.forEach(k=>{ totB += (S.budgets[k]||0); totS += (spent[k]||0); });
-  const rem = totB - totS;
-  return `<div class="card"><div class="row"><h2>📊 Monthly Budget vs Actual</h2><button class="btn s sm" onclick="A.setBudgets()">⚙️ Edit Budgets</button></div>
-  <div class="row" style="margin:10px 0"><div><small>Total Budgeted</small><br><b>${fmt(totB)}</b></div><div><small>Spent so far</small><br><b class="${totS>totB?'neg':'pos'}">${fmt(totS)}</b></div><div><small>Remaining</small><br><b>${fmt(rem)}</b></div></div>
-  ${cats.map(k=>{
-    const b = S.budgets[k]||0; const s = spent[k]||0; const p = b ? Math.min(100, (s/b)*100) : 0;
-    if(!b && !s) return '';
-    return `<div style="margin:8px 0"><div class="row"><small><b>${esc(k)}</b>: ${fmt(s)} /${fmt(b)}</small><small class="${s>b?'neg':'mu'}">${s>b?'Over by '+fmt(s-b):fmt(b-s)+' left'}</small></div><div class="bar"><i style="width:${p}%;background:${s>b?'var(--rd)':(CATS[k]||'var(--ac)')}"></i></div></div>`
-  }).join('')}
-  </div>`;
-}
-
 function home(){
-  const c=calc(),ins=insights(),up=allBills().map(b=>({...b,d:days(nextDue(b))})).sort((a,b)=>a.d-b.d).slice(0,4);
-  return`<div class="card hero"><small>Net worth</small><div class="big">${fmt(c.nw)}</div><small>Cash ${fmt(c.liquid)} · Invested ${fmt(c.invested)} · Loans −${fmt(c.debt)}</small>
+  const c=calc();
+  return`<div class="card hero"><small>Total Net Worth</small><div class="big">${fmt(c.nw)}</div>
+  <small>Liquid Cash ${fmt(c.liquid)} · Investments ${fmt(c.invested)} · Debt −${fmt(c.debt)}</small>
   <div class="grid3">
     <div class="stat"><small>Income</small><b>${fmt(c.cur.inc)}</b></div>
     <div class="stat"><small>Spent</small><b>${fmt(c.cur.exp)}</b></div>
     <div class="stat"><small>Monthly EMI</small><b>${fmt(c.emi)}</b></div>
   </div></div>
   ${categoryBalancesWidget()}
-  <div class="card"><div class="row"><h2>🤖 Insights</h2></div>${ins.map(i=>`<div class="item"><span>${esc(i[1])}</span><span class="chip ${i[0]=='g'?'g':'w'}">${i[0]=='g'?'good':'watch'}</span></div>`).join('')}</div>
-  ${budgetTracker()}`;
+  <div class="card"><h2>📈 Investment & Insurance Monthly Commitments</h2>
+  <div class="row"><div><small>Monthly SIPs & Premiums</small><br><b style="font-size:18px">${fmt(c.monthlyInvestCommitment)}</b></div><button class="btn s sm" onclick="A.go('inv')">Manage in Invest Tab</button></div></div>`;
 }
 
 function daily(){
@@ -238,11 +225,12 @@ function banks(){
 }
 
 function invest(){
-  const c=calc(),al=RISK[S.risk],d=Math.max(0,c.deploy),ds=Math.max(0,c.cur.inc-c.cur.exp-c.cur.inv);
-  return `<div class="card hero"><small>Current Net Worth</small><div class="big">${fmt(c.nw)}</div><small>Liquid ${fmt(c.liquid)} · Invested ${fmt(c.invested)}</small></div>
-  <div class="card"><h2>Risk profile</h2><div class="seg">${Object.keys(RISK).map(r=>`<button class="${r==S.risk?'on':''}" onclick="A.risk('${r}')">${r[0].toUpperCase()+r.slice(1)}</button>`).join('')}</div>
-  <h2 style="margin-top:14px">Suggested allocation</h2>${al.map((a,i)=>`<div style="margin:10px 0"><div class="row"><span>${a[0]} · ${a[1]}%</span><b>${fmt(d*a[1]/100)}</b></div><div class="bar"><i style="width:${a[1]*1.8}%;background:${AC[i%5]}"></i></div></div>`).join('')}</div>
-  <div class="card"><div class="row"><h2>🎯 Goals</h2><button class="btn s sm" onclick="A.addGoal()">+ Goal</button></div>${S.goals.map((g,i)=>{const p=Math.min(100,g.s/g.t*100);return`<div style="margin:12px 0"><div class="row"><b>${esc(g.n)}</b><div><small>${fmt(g.s)} / ${fmt(g.t)}</small> <button class="ic" onclick="A.fund(${i})">＋</button><button class="ic" onclick="A.del('goals',${i})">✕</button></div></div><div class="bar"><i style="width:${p}%;background:var(--ac2)"></i></div></div>`}).join('')||'<p class="mu">Set a goal.</p>'}</div>`;
+  const c=calc(), invs=S.investments||[];
+  return `<div class="card hero"><small>Current Total Net Worth</small><div class="big">${fmt(c.nw)}</div><small>Total Investment Value: ${fmt(c.invested)} · Monthly Commitment: ${fmt(c.monthlyInvestCommitment)}</small></div>
+  <div class="row" style="margin-bottom:10px"><h2 style="margin:0">🛡️ SIPs & Insurance Premiums</h2><button class="btn sm" onclick="A.addInvestment()">+ Investment / Insurance</button></div>
+  ${invs.map((inv, i)=>`<div class="card"><div class="row"><div><b>${esc(inv.n)}</b> <span class="chip g">${esc(inv.type||'Investment')}</span><br><small>Monthly Outflow: <b>${fmt(inv.a)}</b> · Expected Rate: ${inv.rate||0}%</small></div><div style="text-align:right"><div style="font-size:18px;font-weight:700">${fmt(inv.val||0)}</div><small>Accumulated Value</small></div></div><div class="row" style="margin-top:10px"><button class="btn s sm" onclick="A.payInvestment(${i})">Mark Paid This Month</button><button class="btn s sm" onclick="A.editInvestment(${i})">✏️ Edit</button><button class="ic" onclick="A.delInvestment(${i})">Remove</button></div></div>`).join('')||'<p class="mu">No investments or premiums added yet.</p>'}
+  
+  <div class="card"><div class="row"><h2>🎯 Future Goals</h2><button class="btn s sm" onclick="A.addGoal()">+ Add Goal</button></div>${S.goals.map((g,i)=>{const p=Math.min(100,g.s/g.t*100);return`<div style="margin:12px 0"><div class="row"><b>${esc(g.n)}</b><div><small>${fmt(g.s)} / ${fmt(g.t)}</small> <button class="ic" onclick="A.fund(${i})">＋</button><button class="ic" onclick="A.del('goals',${i})">✕</button></div></div><div class="bar"><i style="width:${p}%;background:var(--ac2)"></i></div></div>`}).join('')||'<p class="mu">Set a goal.</p>'}</div>`;
 }
 
 function aiv(){ return `<div class="card"><h2>✨ AI Advisor</h2><p class="mu">Ask questions about allocations, loan prepayments, or budgets.</p></div>`; }
@@ -276,7 +264,7 @@ const A = {
   },
   addTx(){
     if(!S.banks.length)return A.addBank();
-    form('Add transaction',[{k:'t',l:'Type',o:[['expense','Expense'],['income','Income'],['invest','Investment']]},{k:'a',l:'Amount (₹)',t:'number'},{k:'c',l:'Category',o:Object.keys(CATS).concat(['Salary','Index fund SIP','Gold','Other income'])},{k:'b',l:'Bank',o:bankOpts()},{k:'d',l:'Date',t:'date',v:ld()},{k:'n',l:'Note'}],v=>{if(v.a>0)S.tx.push({...v,b:+v.b,id:'t'+Date.now()})});
+    form('Add transaction',[{k:'t',l:'Type',o:[['expense','Expense'],['income','Income'],['invest','Investment']]},{k:'a',l:'Amount (₹)',t:'number'},{k:'c',l:'Category',o:Object.keys(CATS).concat(['Salary','Index Fund SIP','Gold','Other income'])},{k:'b',l:'Bank',o:bankOpts()},{k:'d',l:'Date',t:'date',v:ld()},{k:'n',l:'Note'}],v=>{if(v.a>0)S.tx.push({...v,b:+v.b,id:'t'+Date.now()})});
   },
   delTx(id){ S.tx=S.tx.filter(x=>x.id!=id); save(); render(); },
   quick(c){
@@ -285,6 +273,41 @@ const A = {
     S.tx.push({id:'t'+Date.now(),t:'expense',a,c,b,d:ld(),n:$('#qn').value||c}); save(); render();
   },
   limit(){ form('Daily budget',[{k:'a',l:'Daily limit (₹)',t:'number',v:S.dl}],v=>{if(v.a>0)S.dl=v.a}); },
+  addInvestment(){
+    if(!S.banks.length)return A.addBank();
+    form('Add SIP / Insurance / Investment', [
+      {k:'n', l:'Name (e.g. Health Insurance, Term Policy, SIP)'},
+      {k:'a', l:'Monthly Outflow / Premium (₹)', t:'number'},
+      {k:'type', l:'Category Type', o:[['Insurance','Insurance'],['SIP / Equity','SIP / Equity'],['PPF / Debt','PPF / Debt'],['FD / RD','FD / RD']]},
+      {k:'rate', l:'Expected Returns % p.a.', t:'number', v:8},
+      {k:'val', l:'Current Total Accumulated Value (₹)', t:'number', v:0},
+      {k:'b', l:'Debited Bank', o:bankOpts()}
+    ], v=>{
+      if(v.n && v.a>0){
+        S.investments.push({id:'inv'+Date.now(), ...v, b:+v.b});
+        save(); render();
+      }
+    });
+  },
+  editInvestment(i){
+    const inv = S.investments[i];
+    form('Edit '+esc(inv.n), [
+      {k:'n', l:'Name', v:inv.n},
+      {k:'a', l:'Monthly Outflow (₹)', t:'number', v:inv.a},
+      {k:'val', l:'Accumulated Corpus Value (₹)', t:'number', v:inv.val||0},
+      {k:'rate', l:'Expected Return % p.a.', t:'number', v:inv.rate||0}
+    ], v=>{
+      S.investments[i].n = v.n; S.investments[i].a = v.a; S.investments[i].val = v.val; S.investments[i].rate = v.rate;
+      save(); render();
+    });
+  },
+  payInvestment(i){
+    const inv = S.investments[i];
+    inv.val = (inv.val || 0) + inv.a;
+    S.tx.push({id:'t'+Date.now(), t:'invest', a:inv.a, c:'Investments', b:inv.b, d:ld(), n:inv.n+' Premium/SIP'});
+    save(); render();
+  },
+  delInvestment(i){ S.investments.splice(i,1); save(); render(); },
   addLoan(){
     if(!S.banks.length)return A.addBank();
     form('Add Loan',[{k:'n',l:'Loan name'},{k:'orig',l:'Original loan (₹)',t:'number'},{k:'out',l:'Outstanding now (₹)',t:'number'},{k:'rate',l:'Interest % p.a.',t:'number'},{k:'emi',l:'Monthly EMI (₹)',t:'number'},{k:'day',l:'EMI date (1-28)',t:'number',v:5},{k:'b',l:'Debited from',o:bankOpts()}],v=>{if(v.n&&v.emi>0)S.loans.push({...v,b:+v.b,day:Math.min(28,Math.max(1,v.day||1)),orig:v.orig||v.out})});
