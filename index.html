@@ -43,7 +43,7 @@ label{display:block;font-size:12px;color:var(--mu);margin:10px 0 4px}input,selec
 <body>
 <div id="app"></div>
 <script>
-const $=s=>document.querySelector(s),K_ACC='fm_accounts_v6',ld=()=>{const d=new Date();return new Date(d.getTime()-d.getTimezoneOffset()*6e4).toISOString().slice(0,10)};
+const $=s=>document.querySelector(s),K_ACC='fm_accounts_v7',ld=()=>{const d=new Date();return new Date(d.getTime()-d.getTimezoneOffset()*6e4).toISOString().slice(0,10)};
 const fmt=n=>(n<0?'-':'')+'₹'+Math.abs(Math.round(n)).toLocaleString('en-IN');
 const esc=s=>String(s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const iso=d=>d.toISOString().slice(0,10),mk=d=>d.slice(0,7);
@@ -91,6 +91,7 @@ async function verifyTotpToken(secret, userToken) {
 let accounts = [], currentAccId = '', currentUser = null, S = null, view='home', chat=[], busy=false;
 let authStep = 'login', tempEmail = '', tempPass = '', tempSecret = '';
 let projYear = 2050, projCagr = 12;
+let summaryFilterDate = ld(); // Calendar date filter for summary
 
 function seed(){
   let r=7;const rnd=()=>(r=(r*9301+49297)%233280)/233280,tx=[],now=new Date();
@@ -162,7 +163,7 @@ function calc(){
   const cur=M(cm),ms=months(4).slice(0,3).map(m=>M(m.k).exp).filter(x=>x>0),avg=ms.length?ms.reduce((a,b)=>a+b)/ms.length:cur.exp,
   liquid=(S?S.banks:[]).reduce((s,_,i)=>s+bal(i),0),
   investedVal=(S?S.investments:[]).reduce((s,inv)=>s+(inv.val||0),0) + sum((S?S.tx:[]).filter(x=>x.t=='invest')),
-  monthlyInvestCommitment=(S?S.investments:[]).reduce((s,inv)=>s+(inv.a||0),0),
+  monthlyInvestCommitment=(S?S.investments:[]).filter(inv=>inv.type!=='Insurance').reduce((s,inv)=>s+(inv.a||0),0),
   bills=allBills().filter(b=>days(nextDue(b))<=30).reduce((s,b)=>s+b.a,0),buffer=avg*3;
   
   return{
@@ -175,23 +176,26 @@ function calc(){
   }
 }
 
-// Aggregated metrics for Weekly, Monthly, Yearly
+// Calendar-filtered Aggregates for Weekly, Monthly, Yearly based on summaryFilterDate
 function getAggregates(){
-  const now = new Date(), nowIso = ld(), curYear = now.getFullYear().toString(), curMonth = mk(nowIso);
+  const filterDate = new Date(summaryFilterDate || ld());
+  const filterIso = summaryFilterDate || ld();
+  const filterYear = filterIso.slice(0,4);
+  const filterMonth = mk(filterIso);
   const txs = S ? S.tx : [];
   
-  // Weekly (last 7 days)
-  const weekAgo = new Date(now.getTime() - 7*864e5);
-  const weekTxs = txs.filter(x => new Date(x.d) >= weekAgo);
+  // Weekly (7-day window ending on filterDate)
+  const weekStart = new Date(filterDate.getTime() - 6*864e5);
+  const weekTxs = txs.filter(x => { const d = new Date(x.d); return d >= weekStart && d <= filterDate; });
   const wInc = sum(weekTxs.filter(x=>x.t=='income')), wExp = sum(weekTxs.filter(x=>x.t=='expense'));
 
-  // Monthly (current month)
-  const mInc = sum(txs.filter(x=>mk(x.d)==curMonth && x.t=='income'));
-  const mExp = sum(txs.filter(x=>mk(x.d)==curMonth && x.t=='expense'));
+  // Monthly (matching month of filterDate)
+  const mInc = sum(txs.filter(x=>mk(x.d)==filterMonth && x.t=='income'));
+  const mExp = sum(txs.filter(x=>mk(x.d)==filterMonth && x.t=='expense'));
 
-  // Yearly (current year)
-  const yInc = sum(txs.filter(x=>x.d.startsWith(curYear) && x.t=='income'));
-  const yExp = sum(txs.filter(x=>x.d.startsWith(curYear) && x.t=='expense'));
+  // Yearly (matching year of filterDate)
+  const yInc = sum(txs.filter(x=>x.d.startsWith(filterYear) && x.t=='income'));
+  const yExp = sum(txs.filter(x=>x.d.startsWith(filterYear) && x.t=='expense'));
 
   return {
     weekly: { inc: wInc, exp: wExp, sav: wInc - wExp },
@@ -216,7 +220,8 @@ function categoryBalancesWidget(){
 function aggregatedSummaryWidget(){
   const ag = getAggregates();
   return `<div class="card">
-    <h2>📊 Income, Expenses & Savings Summary</h2>
+    <div class="row"><h2>📊 Income, Expenses & Savings Summary</h2>
+    <div style="width:160px"><label style="margin:0;font-size:10px">Calendar Filter Date</label><input type="date" id="summaryDate" value="${summaryFilterDate}" onchange="A.setSummaryDate(this.value)" style="padding:4px;font-size:12px"></div></div>
     <div class="grid3" style="text-align:center;margin-top:10px">
       <div class="stat"><small><b>Weekly</b></small><br><small class="pos">Inc: ${fmt(ag.weekly.inc)}</small><br><small class="neg">Exp: ${fmt(ag.weekly.exp)}</small><br><b>Sav: ${fmt(ag.weekly.sav)}</b></div>
       <div class="stat"><small><b>Monthly</b></small><br><small class="pos">Inc: ${fmt(ag.monthly.inc)}</small><br><small class="neg">Exp: ${fmt(ag.monthly.exp)}</small><br><b>Sav: ${fmt(ag.monthly.sav)}</b></div>
@@ -268,11 +273,14 @@ function invest(){
   const c=calc(), invs=S.investments||[];
   const currentYear = new Date().getFullYear();
   const yearsDiff = Math.max(1, projYear - currentYear);
-  const monthlyTot = c.monthlyInvestCommitment;
-  const pv = c.invested;
+  
+  // Exclude insurance from investment corpus and monthly commitment projections
+  const pureInvestments = invs.filter(inv => inv.type !== 'Insurance');
+  const monthlyTot = pureInvestments.reduce((sum, inv) => sum + (inv.a || 0), 0);
+  const pv = pureInvestments.reduce((sum, inv) => sum + (inv.val || 0), 0);
+
   const r = (projCagr / 100) / 12;
   const n = yearsDiff * 12;
-  // Future value formula: PV * (1+r)^n + PMT * [((1+r)^n - 1) / r]
   let futureVal = pv * Math.pow(1 + r, n);
   if(r > 0) futureVal += monthlyTot * ((Math.pow(1 + r, n) - 1) / r);
   else futureVal += pv + monthlyTot * n;
@@ -280,10 +288,10 @@ function invest(){
   return `<div class="card hero"><small>Current Total Net Worth</small><div class="big">${fmt(c.nw)}</div><small>Total Investment Value: ${fmt(c.invested)} · Monthly Commitment: ${fmt(c.monthlyInvestCommitment)}</small></div>
   
   <div class="card">
-    <div class="row"><h2>📈 Portfolio Projection (e.g., Year ${projYear})</h2><button class="btn s sm" onclick="A.setProjection()">⚙️ Configure</button></div>
+    <div class="row"><h2>📈 Portfolio Projection (Excl. Insurance, Year ${projYear})</h2><button class="btn s sm" onclick="A.setProjection()">⚙️ Configure</button></div>
     <div class="row" style="margin:10px 0"><div><small>Target Year</small><br><b>${projYear} (${yearsDiff} yrs)</b></div><div><small>Assumed CAGR</small><br><b>${projCagr}% p.a.</b></div><div><small>Projected Corpus</small><br><b class="pos" style="font-size:18px">${fmt(futureVal)}</b></div></div>
     <div class="bar"><i style="width:100%;background:linear-gradient(90deg,#6c5ce7,#00b8a0)"></i></div>
-    <small class="mu" style="margin-top:6px;display:block">Based on current corpus (${fmt(pv)}) and monthly SIP commitments (${fmt(monthlyTot)}).</small>
+    <small class="mu" style="margin-top:6px;display:block">Based on investment corpus (${fmt(pv)}) and pure wealth SIP commitments (${fmt(monthlyTot)}).</small>
   </div>
 
   <div class="row" style="margin-bottom:10px"><h2 style="margin:0">🛡️ SIPs & Insurance Premiums</h2><button class="btn sm" onclick="A.addInvestment()">+ Investment / Insurance</button></div>
@@ -315,6 +323,9 @@ const A = {
   theme(){
     const r=document.documentElement, d=r.dataset.theme?r.dataset.theme=='dark':matchMedia('(prefers-color-scheme:dark)').matches;
     r.dataset.theme=d?'light':'dark';
+  },
+  setSummaryDate(val){
+    if(val){ summaryFilterDate = val; render(); }
   },
   setBudgets(){
     const cats = Object.keys(CATS);
