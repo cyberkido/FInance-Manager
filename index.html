@@ -1,4 +1,9 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><title>Finance Manager</title>
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Finance Manager</title>
 <style>
 :root{--bg:#f3f5fb;--card:#fff;--tx:#141a2e;--mu:#6b7490;--bd:#e3e7f1;--ac:#6c5ce7;--ac2:#00b8a0;--rd:#ef476f;--am:#f2a31b;--sh:0 6px 24px rgba(40,50,110,.08);box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0c0f1d;--card:#171b2f;--tx:#eef0fa;--mu:#9099b8;--bd:#272c47;--sh:0 6px 24px rgba(0,0,0,.4)}}
@@ -32,4 +37,185 @@ label{display:block;font-size:12px;color:var(--mu);margin:10px 0 4px}input,selec
 .scroll{overflow-x:auto}.seg{display:flex;background:var(--bg);border-radius:12px;padding:3px;gap:3px}.seg button{flex:1;border:0;background:none;padding:8px;border-radius:10px;cursor:pointer}.seg .on{background:var(--ac);color:#fff}
 .note{font-size:12px;color:var(--mu);margin-top:8px}
 .auth-container{max-width:400px;margin:60px auto;padding:20px}
-</style></head><body><div id="app">
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script>
+const $=s=>document.querySelector(s),K_ACC='fm_accounts_v3',ld=()=>{const d=new Date();return new Date(d.getTime()-d.getTimezoneOffset()*6e4).toISOString().slice(0,10)};
+const fmt=n=>(n<0?'-':'')+'₹'+Math.abs(Math.round(n)).toLocaleString('en-IN');
+const esc=s=>String(s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const iso=d=>d.toISOString().slice(0,10),mk=d=>d.slice(0,7);
+const CATS={Food:'#ff7675',Petrol:'#00cec9',Transport:'#74b9ff',Rent:'#a29bfe',Shopping:'#fd79a8',Bills:'#fdcb6e',Health:'#55efc4',Fun:'#e17055',EMI:'#e84393',Other:'#b2bec3'};
+const ROLES=['Expense','Savings','Investment','Auto-debit','Backup'];
+const RISK={conservative:[['Liquid fund / FD',45],['Debt / PPF',30],['Gold',15],['Index fund SIP',10]],balanced:[['Liquid fund / FD',20],['Debt / PPF',20],['Gold',15],['Index fund SIP',45]],aggressive:[['Liquid fund / FD',10],['Gold',10],['Index fund SIP',55],['Flexi/Mid-cap fund',25]]};
+const AC=['#6c5ce7','#00b8a0','#f2a31b','#ef476f','#4aa8ff'];
+
+let accounts = [], currentAccId = '', currentUser = null, S = null, view='home', chat=[], busy=false;
+
+function seed(){
+  let r=7;const rnd=()=>(r=(r*9301+49297)%233280)/233280,tx=[],now=new Date();
+  for(let m=5;m>=0;m--){
+    const d=new Date(now.getFullYear(),now.getMonth()-m,1),y=d.getFullYear(),mo=String(d.getMonth()+1).padStart(2,'0');
+    tx.push({id:'i'+m,t:'income',a:65000,c:'Salary',b:0,d:`${y}-${mo}-01`,n:'Salary'});
+    tx.push({id:'r'+m,t:'expense',a:15000,c:'Rent',b:0,d:`${y}-${mo}-02`,n:'Rent'});
+    [['Food',9000],['Petrol',3500],['Transport',4000],['Shopping',6000],['Bills',3500],['Health',1500],['Fun',3000]].forEach(([c,v],i)=>{
+      const day=Math.min(27,3+i*3);if(m===0&&day>now.getDate())return;
+      tx.push({id:c+m,t:'expense',a:Math.round(v*(.8+rnd()*.5)),c,b:i%2?1:0,d:`${y}-${mo}-${String(day).padStart(2,'0')}`,n:c})
+    });
+    if(m>0)tx.push({id:'v'+m,t:'invest',a:5000,c:'Index fund SIP',b:2,d:`${y}-${mo}-05`,n:'SIP'})
+  }
+  return{
+    tx,risk:'balanced',sample:true,
+    banks:[{n:'Bank A – Salary',open:60000,rate:3,cash:0,min:10000,role:'Auto-debit'},{n:'Bank B – Cashback Card',open:20000,rate:2.7,cash:5,min:0,role:'Expense'},{n:'Bank C – High Interest',open:80000,rate:7,cash:0,min:0,role:'Savings'}],
+    bills:[{n:'Rent',a:15000,day:2,b:0},{n:'Phone & Internet',a:999,day:12,b:0},{n:'Insurance premium',a:2100,day:18,b:0},{n:'Index fund SIP',a:5000,day:5,b:2}],
+    goals:[{n:'Emergency fund',t:150000,s:60000},{n:'Travel',t:80000,s:22000}],
+    loans:[{n:'Car loan',orig:600000,out:380000,rate:9.2,emi:14500,day:7,b:0},{n:'Personal loan',orig:200000,out:0,rate:13,emi:7200,day:15,b:0}],
+    dl:1200,
+    budgets:{Food:10000,Petrol:4000,Transport:5000,Shopping:7000,Bills:4000,Health:2000,Fun:4000,Rent:15000}
+  };
+}
+
+function initAccounts(){
+  try{
+    accounts = JSON.parse(localStorage.getItem(K_ACC)) || [];
+    currentUser = JSON.parse(localStorage.getItem('fm_current_user')) || null;
+  }catch(e){ accounts = []; currentUser = null; }
+
+  if(currentUser){
+    if(!accounts.length){
+      accounts = [{id:'default', name:'Personal'}];
+    }
+    currentAccId = localStorage.getItem('fm_current_acc') || accounts[0].id;
+    loadState();
+  }
+}
+
+function loadState(){
+  try{ S = JSON.parse(localStorage.getItem('fm_state_' + currentAccId)); }catch(e){ S = null; }
+  if(!S){ S = seed(); }
+  S.loans = S.loans || [];
+  S.dl = S.dl || 1200;
+  S.budgets = S.budgets || {Food:10000,Petrol:4000,Transport:5000,Shopping:7000,Bills:4000,Health:2000,Fun:4000,Rent:15000};
+}
+
+const save=()=>{
+  try{
+    if(currentAccId && S) localStorage.setItem('fm_state_' + currentAccId, JSON.stringify(S));
+    localStorage.setItem(K_ACC, JSON.stringify(accounts));
+    localStorage.setItem('fm_current_acc', currentAccId);
+    if(currentUser) localStorage.setItem('fm_current_user', JSON.stringify(currentUser));
+  }catch(e){}
+};
+
+const bal=i=>S&&S.banks[i]?S.banks[i].open+S.tx.filter(x=>x.b==i).reduce((s,x)=>s+(x.t=='income'?x.a:-x.a),0):0;
+const sum=a=>a.reduce((s,x)=>s+x.a,0),cm=mk(ld());
+function months(n){const o=[],now=new Date();for(let i=n-1;i>=0;i--){const d=new Date(now.getFullYear(),now.getMonth()-i,1);o.push({k:mk(iso(new Date(d.getTime()-d.getTimezoneOffset()*6e4))),l:d.toLocaleString('en',{month:'short'})})}return o}
+function M(k){const t=(S?S.tx:[]).filter(x=>mk(x.d)==k);return{inc:sum(t.filter(x=>x.t=='income')),exp:sum(t.filter(x=>x.t=='expense')),inv:sum(t.filter(x=>x.t=='invest')),t}}
+function nextDue(b){const n=new Date(),d=new Date(n.getFullYear(),n.getMonth(),b.day);if(d<new Date(n.getFullYear(),n.getMonth(),n.getDate()))d.setMonth(d.getMonth()+1);return d}
+const days=d=>Math.round((d-new Date(new Date().setHours(0,0,0,0)))/864e5);
+const allBills=()=>(S?S.bills:[]).concat((S?S.loans:[]).filter(l=>l.out>0).map(l=>({n:l.n+' EMI',a:l.emi,day:l.day,b:l.b,loan:1})));
+
+function calc(){
+  const cur=M(cm),ms=months(4).slice(0,3).map(m=>M(m.k).exp).filter(x=>x>0),avg=ms.length?ms.reduce((a,b)=>a+b)/ms.length:cur.exp,
+  liquid=(S?S.banks:[]).reduce((s,_,i)=>s+bal(i),0),invested=sum((S?S.tx:[]).filter(x=>x.t=='invest')),bills=allBills().filter(b=>days(nextDue(b))<=30).reduce((s,b)=>s+b.a,0),buffer=avg*3;
+  return{cur,avg,liquid,invested,bills,buffer,deploy:liquid-buffer-bills,debt:(S?S.loans:[]).reduce((s,l)=>s+l.out,0),emi:(S?S.loans:[]).filter(l=>l.out>0).reduce((s,l)=>s+l.emi,0),nw:liquid+invested-(S?S.loans:[]).reduce((s,l)=>s+l.out,0),rate:cur.inc?Math.max(0,(cur.inc-cur.exp)/cur.inc*100):0}
+}
+
+function insights(){
+  const c=calc(),o=[],cats={};c.cur.t.filter(x=>x.t=='expense').forEach(x=>cats[x.c]=(cats[x.c]||0)+x.a);
+  const top=Object.entries(cats).sort((a,b)=>b[1]-a[1]).filter(x=>x[0]!='Rent')[0],ps=months(2),prev=M(ps[0].k).exp;
+  if(c.cur.inc)o.push(c.rate>=30?['g',`Great savings rate: ${c.rate.toFixed(0)}% of income this month.`]:c.rate>=15?['w',`Savings rate is ${c.rate.toFixed(0)}% – aim for 30% by trimming ${top?top[0]:'discretionary'} spend.`]:['r',`Savings rate only ${c.rate.toFixed(0)}% – review spending now.`]);
+  if(top)o.push(['w',`Biggest flexible category: ${top[0]} (${fmt(top[1])}).`]);
+  if(prev&&c.cur.exp>prev*1.1)o.push(['r',`Spending is up ${((c.cur.exp/prev-1)*100).toFixed(0)}% vs last month.`]);
+  if(c.deploy>5000)o.push(['g',`You can deploy about ${fmt(c.deploy)} buffer surplus.`]);
+  return o;
+}
+
+function categoryBalancesWidget(){
+  const c=calc().cur, spent={Food:0, Petrol:0, Fun:0};
+  c.t.filter(x=>x.t=='expense').forEach(x=>{ if(spent[x.c]!==undefined) spent[x.c]+=x.a; });
+  const foodB=S.budgets.Food||10000, petrolB=S.budgets.Petrol||4000, funB=S.budgets.Fun||4000;
+  return `<div class="card"><h2>⛽ Key Expense Allowances</h2>
+  <div class="grid3">
+    <div class="stat"><small>Petrol Bal</small><b>${fmt(petrolB - spent.Petrol)}</b><small class="mu">Spent: ${fmt(spent.Petrol)}</small></div>
+    <div class="stat"><small>Food Bal</small><b>${fmt(foodB - spent.Food)}</b><small class="mu">Spent: ${fmt(spent.Food)}</small></div>
+    <div class="stat"><small>Entertainment</small><b>${fmt(funB - spent.Fun)}</b><small class="mu">Spent: ${fmt(spent.Fun)}</small></div>
+  </div></div>`;
+}
+
+function home(){
+  const c=calc(),ins=insights(),up=allBills().map(b=>({...b,d:days(nextDue(b))})).sort((a,b)=>a.d-b.d).slice(0,4);
+  return`<div class="card hero"><small>Net worth</small><div class="big">${fmt(c.nw)}</div><small>Cash ${fmt(c.liquid)} · Invested ${fmt(c.invested)} · Loans −${fmt(c.debt)}</small>
+  <div class="grid3">
+    <div class="stat"><small>Income</small><b>${fmt(c.cur.inc)}</b></div>
+    <div class="stat"><small>Spent</small><b>${fmt(c.cur.exp)}</b></div>
+    <div class="stat"><small>Monthly EMI</small><b>${fmt(c.emi)}</b></div>
+  </div></div>
+  ${categoryBalancesWidget()}
+  <div class="card"><div class="row"><h2>🤖 Insights</h2></div>${ins.map(i=>`<div class="item"><span>${esc(i[1])}</span><span class="chip ${i[0]=='g'?'g':'w'}">${i[0]=='g'?'good':'watch'}</span></div>`).join('')}</div>`;
+}
+
+function daily(){ return `<div class="card"><h2>📅 Transactions</h2><p class="mu">View and manage daily spending transactions.</p></div>`; }
+function banks(){ return `<div class="card"><h2>🏦 Bank Accounts</h2><p class="mu">Manage registered bank accounts and balances.</p></div>`; }
+function loans(){ return `<div class="card"><h2>💳 Outstanding Loans</h2><p class="mu">Manage EMIs and loan schedules.</p></div>`; }
+function invest(){ return `<div class="card"><h2>📈 Investment Strategies</h2><p class="mu">Track goals and growth metrics.</p></div>`; }
+function aiv(){ return `<div class="card"><h2>✨ AI Financial Advisor</h2><p class="mu">Smart recommendations for your portfolio.</p></div>`; }
+
+function renderAuth(){
+  const app = $('#app');
+  app.innerHTML = `<div class="card auth-container">
+    <h2>🔐 Unlock Finance Manager</h2>
+    <label>Email Address</label>
+    <input id="l_email" type="email" placeholder="you@example.com">
+    <label>Passcode</label>
+    <input id="l_pass" type="password" placeholder="Enter Passcode">
+    <button class="btn" style="width:100%;margin-top:16px" onclick="handleLogin()">Unlock Account</button>
+  </div>`;
+}
+
+window.handleLogin = function(){
+  const emailEl = $('#l_email'), passEl = $('#l_pass');
+  const email = emailEl ? emailEl.value.trim() : '';
+  const pass = passEl ? passEl.value.trim() : '';
+  
+  if(!email || !pass){ alert('Please enter your email and passcode.'); return; }
+  
+  currentUser = { email };
+  accounts = [{id:'default', name:'Personal'}];
+  currentAccId = accounts[0].id;
+  loadState();
+  save();
+  render();
+};
+
+const A = {
+  logout(){
+    currentUser = null; currentAccId = ''; S = null;
+    localStorage.removeItem('fm_current_user');
+    localStorage.removeItem('fm_current_acc');
+    render();
+  },
+  go(v){ view = v; render(); },
+  theme(){
+    const r=document.documentElement, d=r.dataset.theme?r.dataset.theme=='dark':matchMedia('(prefers-color-scheme:dark)').matches;
+    r.dataset.theme=d?'light':'dark';
+  }
+};
+
+function render(){
+  initAccounts();
+  if(!currentUser){ renderAuth(); return; }
+  const t=[['home','🏠','Home'],['tx','📅','Daily'],['banks','🏦','Banks'],['loans','💳','Loans'],['inv','📈','Invest'],['ai','✨','AI']];
+  const currAccName = accounts.find(a=>a.id===currentAccId)?.name || 'Personal';
+  
+  $('#app').innerHTML=`<header><div><h1>💸 Finance Manager</h1><small>User: <b>${esc(currentUser.email)}</b></small></div><div class="row"><button class="btn s sm" onclick="A.logout()">Logout</button><button class="ic" onclick="A.theme()" style="margin-left:4px">🌓</button></div></header>` +
+  {home,tx:daily,banks,loans,inv:invest,ai:aiv}[view]() +
+  `<nav>${t.map(x=>`<button class="${view==x[0]?'on':''}" onclick="A.go('${x[0]}')"><span>${x[1]}</span>${x[2]}</button>`).join('')}</nav>`;
+}
+
+document.addEventListener('DOMContentLoaded', render);
+render();
+</script>
+</body>
+</html>
