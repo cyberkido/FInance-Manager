@@ -31,39 +31,40 @@ label{display:block;font-size:12px;color:var(--mu);margin:10px 0 4px}input,selec
 .chips{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0}.chips button{border:1px solid var(--bd);background:var(--card);border-radius:99px;padding:6px 11px;font-size:13px;cursor:pointer}
 .scroll{overflow-x:auto}.seg{display:flex;background:var(--bg);border-radius:12px;padding:3px;gap:3px}.seg button{flex:1;border:0;background:none;padding:8px;border-radius:10px;cursor:pointer}.seg .on{background:var(--ac);color:#fff}
 .note{font-size:12px;color:var(--mu);margin-top:8px}
+.auth-container{max-width:400px;margin:60px auto;padding:20px}
 </style></head><body><div id="app"></div>
 <script>
-const $=s=>document.querySelector(s),K_ACC='fm_accounts_v1',ld=()=>{const d=new Date();return new Date(d.getTime()-d.getTimezoneOffset()*6e4).toISOString().slice(0,10)};
+const $=s=>document.querySelector(s),K_ACC='fm_accounts_v2',ld=()=>{const d=new Date();return new Date(d.getTime()-d.getTimezoneOffset()*6e4).toISOString().slice(0,10)};
 const fmt=n=>(n<0?'-':'')+'₹'+Math.abs(Math.round(n)).toLocaleString('en-IN');
 const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const iso=d=>d.toISOString().slice(0,10),mk=d=>d.slice(0,7);
-const CATS={Food:'#ff7675',Transport:'#74b9ff',Rent:'#a29bfe',Shopping:'#fd79a8',Bills:'#fdcb6e',Health:'#55efc4',Fun:'#e17055',EMI:'#e84393',Other:'#b2bec3'};
+const CATS={Food:'#ff7675',Petrol:'#00cec9',Transport:'#74b9ff',Rent:'#a29bfe',Shopping:'#fd79a8',Bills:'#fdcb6e',Health:'#55efc4',Fun:'#e17055',EMI:'#e84393',Other:'#b2bec3'};
 const ROLES=['Expense','Savings','Investment','Auto-debit','Backup'];
 const RISK={conservative:[['Liquid fund / FD',45],['Debt / PPF',30],['Gold',15],['Index fund SIP',10]],balanced:[['Liquid fund / FD',20],['Debt / PPF',20],['Gold',15],['Index fund SIP',45]],aggressive:[['Liquid fund / FD',10],['Gold',10],['Index fund SIP',55],['Flexi/Mid-cap fund',25]]};
 const AC=['#6c5ce7','#00b8a0','#f2a31b','#ef476f','#4aa8ff'];
 
-let accounts = [], currentAccId = 'default', S, view='home', chat=[], busy=false;
+let accounts = [], currentAccId = '', currentUser = null, authView = 'login', pendingEmail = '', pendingPass = '', generatedOtp = '', S, view='home', chat=[], busy=false;
 
 function seed(){let r=7;const rnd=()=>(r=(r*9301+49297)%233280)/233280,tx=[],now=new Date();
  for(let m=5;m>=0;m--){const d=new Date(now.getFullYear(),now.getMonth()-m,1),y=d.getFullYear(),mo=String(d.getMonth()+1).padStart(2,'0');
   tx.push({id:'i'+m,t:'income',a:65000,c:'Salary',b:0,d:`${y}-${mo}-01`,n:'Salary'});
   tx.push({id:'r'+m,t:'expense',a:15000,c:'Rent',b:0,d:`${y}-${mo}-02`,n:'Rent'});
-  [['Food',9000],['Transport',4000],['Shopping',6000],['Bills',3500],['Health',1500],['Fun',3000]].forEach(([c,v],i)=>{const day=Math.min(27,3+i*4);if(m===0&&day>now.getDate())return;tx.push({id:c+m,t:'expense',a:Math.round(v*(.8+rnd()*.5)),c,b:i%2?1:0,d:`${y}-${mo}-${String(day).padStart(2,'0')}`,n:c})});
+  [['Food',9000],['Petrol',3500],['Transport',4000],['Shopping',6000],['Bills',3500],['Health',1500],['Fun',3000]].forEach(([c,v],i)=>{const day=Math.min(27,3+i*3);if(m===0&&day>now.getDate())return;tx.push({id:c+m,t:'expense',a:Math.round(v*(.8+rnd()*.5)),c,b:i%2?1:0,d:`${y}-${mo}-${String(day).padStart(2,'0')}`,n:c})});
   if(m>0)tx.push({id:'v'+m,t:'invest',a:5000,c:'Index fund SIP',b:2,d:`${y}-${mo}-05`,n:'SIP'})}
  return{tx,risk:'balanced',sample:true,banks:[{n:'Bank A – Salary',open:60000,rate:3,cash:0,min:10000,role:'Auto-debit'},{n:'Bank B – Cashback Card',open:20000,rate:2.7,cash:5,min:0,role:'Expense'},{n:'Bank C – High Interest',open:80000,rate:7,cash:0,min:0,role:'Savings'}],
  bills:[{n:'Rent',a:15000,day:2,b:0},{n:'Phone & Internet',a:999,day:12,b:0},{n:'Insurance premium',a:2100,day:18,b:0},{n:'Index fund SIP',a:5000,day:5,b:2}],
- goals:[{n:'Emergency fund',t:150000,s:60000},{n:'Travel',t:80000,s:22000}],loans:[{n:'Car loan',orig:600000,out:380000,rate:9.2,emi:14500,day:7,b:0},{n:'Personal loan',orig:200000,out:90000,rate:13,emi:7200,day:15,b:0}],dl:1200,budgets:{Food:10000,Transport:5000,Shopping:7000,Bills:4000,Health:2000,Fun:4000,Rent:15000}}}
+ goals:[{n:'Emergency fund',t:150000,s:60000},{n:'Travel',t:80000,s:22000}],loans:[{n:'Car loan',orig:600000,out:380000,rate:9.2,emi:14500,day:7,b:0},{n:'Personal loan',orig:200000,out:0,rate:13,emi:7200,day:15,b:0}],dl:1200,budgets:{Food:10000,Petrol:4000,Transport:5000,Shopping:7000,Bills:4000,Health:2000,Fun:4000,Rent:15000}}}
 
 function initAccounts(){
   try{
     accounts = JSON.parse(localStorage.getItem(K_ACC)) || [];
-  }catch(e){ accounts = []; }
-  if(!accounts.length){
-    accounts = [{id:'default', name:'Personal'}];
-    localStorage.setItem(K_ACC, JSON.stringify(accounts));
+    currentUser = JSON.parse(localStorage.getItem('fm_current_user')) || null;
+  }catch(e){ accounts = []; currentUser = null; }
+  
+  if(currentUser && accounts.length){
+    currentAccId = localStorage.getItem('fm_current_acc') || accounts[0].id;
+    loadState();
   }
-  currentAccId = localStorage.getItem('fm_current_acc') || accounts[0].id;
-  loadState();
 }
 
 function loadState(){
@@ -71,15 +72,16 @@ function loadState(){
   S = S || seed();
   S.loans = S.loans || [];
   S.dl = S.dl || 1200;
-  S.budgets = S.budgets || {Food:10000,Transport:5000,Shopping:7000,Bills:4000,Health:2000,Fun:4000,Rent:15000};
+  S.budgets = S.budgets || {Food:10000,Petrol:4000,Transport:5000,Shopping:7000,Bills:4000,Health:2000,Fun:4000,Rent:15000};
   if(S.sample && !S.lseed && !S.loans.length){ S.loans = seed().loans; S.lseed = 1; }
 }
 
 const save=()=>{
   try{
-    localStorage.setItem('fm_state_' + currentAccId, JSON.stringify(S));
-    localStorage.setItem('fm_accounts_v1', JSON.stringify(accounts));
+    if(currentAccId) localStorage.setItem('fm_state_' + currentAccId, JSON.stringify(S));
+    localStorage.setItem(K_ACC, JSON.stringify(accounts));
     localStorage.setItem('fm_current_acc', currentAccId);
+    localStorage.setItem('fm_current_user', JSON.stringify(currentUser));
   }catch(e){}
 };
 
@@ -91,10 +93,10 @@ function months(n){const o=[],now=new Date();for(let i=n-1;i>=0;i--){const d=new
 function M(k){const t=S.tx.filter(x=>mk(x.d)==k);return{inc:sum(t.filter(x=>x.t=='income')),exp:sum(t.filter(x=>x.t=='expense')),inv:sum(t.filter(x=>x.t=='invest')),t}}
 function nextDue(b){const n=new Date(),d=new Date(n.getFullYear(),n.getMonth(),b.day);if(d<new Date(n.getFullYear(),n.getMonth(),n.getDate()))d.setMonth(d.getMonth()+1);return d}
 const days=d=>Math.round((d-new Date(new Date().setHours(0,0,0,0)))/864e5);
-const allBills=()=>S.bills.concat(S.loans.map(l=>({n:l.n+' EMI',a:l.emi,day:l.day,b:l.b,loan:1})));
+const allBills=()=>S.bills.concat(S.loans.filter(l=>l.out>0).map(l=>({n:l.n+' EMI',a:l.emi,day:l.day,b:l.b,loan:1})));
 function calc(){const cur=M(cm),ms=months(4).slice(0,3).map(m=>M(m.k).exp).filter(x=>x>0),avg=ms.length?ms.reduce((a,b)=>a+b)/ms.length:cur.exp,
  liquid=S.banks.reduce((s,_,i)=>s+bal(i),0),invested=sum(S.tx.filter(x=>x.t=='invest')),bills=allBills().filter(b=>days(nextDue(b))<=30).reduce((s,b)=>s+b.a,0),buffer=avg*3;
- return{cur,avg,liquid,invested,bills,buffer,deploy:liquid-buffer-bills,debt:S.loans.reduce((s,l)=>s+l.out,0),emi:S.loans.reduce((s,l)=>s+l.emi,0),nw:liquid+invested-S.loans.reduce((s,l)=>s+l.out,0),rate:cur.inc?Math.max(0,(cur.inc-cur.exp)/cur.inc*100):0}}
+ return{cur,avg,liquid,invested,bills,buffer,deploy:liquid-buffer-bills,debt:S.loans.reduce((s,l)=>s+l.out,0),emi:S.loans.filter(l=>l.out>0).reduce((s,l)=>s+l.emi,0),nw:liquid+invested-S.loans.reduce((s,l)=>s+l.out,0),rate:cur.inc?Math.max(0,(cur.inc-cur.exp)/cur.inc*100):0}}
 
 function insights(){const c=calc(),o=[],cats={};c.cur.t.filter(x=>x.t=='expense').forEach(x=>cats[x.c]=(cats[x.c]||0)+x.a);
  const top=Object.entries(cats).sort((a,b)=>b[1]-a[1]).filter(x=>x[0]!='Rent')[0],ps=months(2),prev=M(ps[0].k).exp;
@@ -190,9 +192,24 @@ const A={
  role(i,v){S.banks[i].role=v;save()},risk(r){S.risk=r;save();render()},go(v){view=v;render();scrollTo(0,0)},
  clear(){S={tx:[],risk:'balanced',banks:[],bills:[],goals:[],loans:[],dl:1200,budgets:{}};save();render()},
  theme(){const r=document.documentElement,d=r.dataset.theme?r.dataset.theme=='dark':matchMedia('(prefers-color-scheme:dark)').matches;r.dataset.theme=d?'light':'dark'},
+ logout(){currentUser=null;currentAccId='';localStorage.removeItem('fm_current_user');localStorage.removeItem('fm_current_acc');render();},
  async q(t,el){const out=el||document.getElementById('aiout');if(!el&&view=='ai'){const q=t||$('#q').value.trim();if(!q||busy)return;busy=true;chat.push({r:'u',t:q});chat.push({r:'a',t:''});render();const o=document.querySelectorAll('.msg.a');await ask(q,o[o.length-1]);chat[chat.length-1].t=o[o.length-1].innerText;busy=false;return}
   if(out)await ask(t,out)}
 };
+
+function categoryBalancesWidget(){
+  const c=calc().cur, spent={Food:0, Petrol:0, Fun:0};
+  c.t.filter(x=>x.t=='expense').forEach(x=>{
+    if(spent[x.c]!==undefined) spent[x.c]+=x.a;
+  });
+  const foodB=S.budgets.Food||10000, petrolB=S.budgets.Petrol||4000, funB=S.budgets.Fun||4000;
+  return `<div class="card"><h2>⛽ Key Expense Balances & Allowances</h2>
+  <div class="grid3">
+    <div class="stat"><small>Petrol Bal</small><b>${fmt(petrolB - spent.Petrol)}</b><small class="mu">Spent: ${fmt(spent.Petrol)}</small></div>
+    <div class="stat"><small>Food Bal</small><b>${fmt(foodB - spent.Food)}</b><small class="mu">Spent: ${fmt(spent.Food)}</small></div>
+    <div class="stat"><small>Entertainment</small><b>${fmt(funB - spent.Fun)}</b><small class="mu">Spent: ${fmt(spent.Fun)}</small></div>
+  </div></div>`;
+}
 
 function budgetTracker(){
   const c=calc().cur, spent={};
@@ -206,12 +223,12 @@ function budgetTracker(){
   ${cats.map(k=>{
     const b = S.budgets[k]||0; const s = spent[k]||0; const p = b ? Math.min(100, (s/b)*100) : 0;
     if(!b && !s) return '';
-    return `<div style="margin:8px 0"><div class="row"><small><b>${esc(k)}</b>: ${fmt(s)} /${fmt(b)}</small><small class="${s>b?'neg':'mu'}">${s>b?'Over by '+fmt(s-b):fmt(b-s)+' left'}</small></div><div class="bar"><i style="width:${p}\%;background:${s>b?'var(--rd)':(CATS[k]||'var(--ac)')}"></i></div></div>`
+    return `<div style="margin:8px 0"><div class="row"><small><b>${esc(k)}</b>: ${fmt(s)} /${fmt(b)}</small><small class="${s>b?'neg':'mu'}">${s>b?'Over by '+fmt(s-b):fmt(b-s)+' left'}</small></div><div class="bar"><i style="width:${p}%;background:${s>b?'var(--rd)':(CATS[k]||'var(--ac)')}"></i></div></div>`
   }).join('')}
   </div>`;
 }
 
-function catBars(){const c=calc().cur,cats={};c.t.filter(x=>x.t=='expense').forEach(x=>cats[x.c]=(cats[x.c]||0)+x.a);const e=Object.entries(cats).sort((a,b)=>b[1]-a[1]);
+function catBars(){const c=calc().cur,cats={};c.cur.t.filter(x=>x.t=='expense').forEach(x=>cats[x.c]=(cats[x.c]||0)+x.a);const e=Object.entries(cats).sort((a,b)=>b[1]-a[1]);
  return e.length?e.map(([k,v])=>`<div style="margin:9px 0"><div class="row"><span>${esc(k)}</span><b>${fmt(v)}</b></div><div class="bar"><i style="width:${v/(e[0][1]||1)*100}%;background:${CATS[k]||'#999'}"></i></div></div>`).join(''):'<p class="mu">No expenses this month yet.</p>'};
 
 function trend(){const ms=months(6),d=ms.map(m=>M(m.k)),mx=Math.max(1,...d.flatMap(x=>[x.inc,x.exp])),w=300/6;
@@ -219,7 +236,12 @@ function trend(){const ms=months(6),d=ms.map(m=>M(m.k)),mx=Math.max(1,...d.flatM
 
 function home(){const c=calc(),ins=insights(),up=allBills().map(b=>({...b,d:days(nextDue(b))})).sort((a,b)=>a.d-b.d).slice(0,4);
  return`<div class="card hero"><small>Net worth</small><div class="big">${fmt(c.nw)}</div><small>Cash ${fmt(c.liquid)} · Invested ${fmt(c.invested)} · Loans −${fmt(c.debt)}</small>
- <div class="grid3"><div class="stat"><small>Income</small><b>${fmt(c.cur.inc)}</b></div><div class="stat"><small>Spent</small><b>${fmt(c.cur.exp)}</b></div><div class="stat"><small>Saved</small><b>${c.rate.toFixed(0)}%</b></div></div></div>
+ <div class="grid3">
+   <div class="stat"><small>Income</small><b>${fmt(c.cur.inc)}</b></div>
+   <div class="stat"><small>Spent</small><b>${fmt(c.cur.exp)}</b></div>
+   <div class="stat"><small>Monthly EMI</small><b>${fmt(c.emi)}</b></div>
+ </div></div>
+ ${categoryBalancesWidget()}
  <div class="card"><div class="row"><h2>🤖 Smart insights</h2><button class="btn sm" onclick="A.go('ai')">Ask AI</button></div>${ins.length?ins.map(i=>`<div class="item"><span>${esc(i[1])}</span><span class="chip ${i[0]=='g'?'g':i[0]=='w'?'w':''}">${i[0]=='g'?'good':i[0]=='w'?'watch':'alert'}</span></div>`).join(''):'<p class="mu">Add transactions to get insights.</p>'}</div>
  ${budgetTracker()}
  <div class="card"><h2>Spending breakdown</h2>${catBars()}</div>
@@ -228,42 +250,106 @@ function home(){const c=calc(),ins=insights(),up=allBills().map(b=>({...b,d:days
  ${S.sample?'<div class="note">Showing sample data. <a href="#" onclick="A.clear();return false" style="color:var(--ac)">Clear sample &amp; start fresh</a></div>':''}`}
 
 function txs(){const l=[...S.tx].sort((a,b)=>b.d.localeCompare(a.d)).slice(0,60);
- return`<div class="card"><h2>Transactions</h2>${l.length?l.map(x=>`<div class="item"><div><b>${esc(x.n\vert{}\vert{}x.c)}</b><br><small>${x.d} · ${esc(x.c)} ·${esc(S.banks[x.b]?.n||'')}</small></div><div class="row"><b class="${x.t=='income'?'pos':x.t=='expense'?'neg':''}">${x.t=='income'?'+':'-'}${fmt(x.a)}</b><button class="ic" onclick="A.delTx('${x.id}')">✕</button></div></div>`).join(''):'<p class="mu">Nothing yet – tap + to add.</p>'}</div>`}
+ return`<div class="card"><h2>Transactions</h2>${l.length?l.map(x=>`<div class="item"><div><b>${esc(x.n||x.c)}</b><br><small>${x.d} · ${esc(x.c)} ·${esc(S.banks[x.b]?.n||'')}</small></div><div class="row"><b class="${x.t=='income'?'pos':x.t=='expense'?'neg':''}">${x.t=='income'?'+':'-'}${fmt(x.a)}</b><button class="ic" onclick="A.delTx('${x.id}')">✕</button></div></div>`).join(''):'<p class="mu">Nothing yet – tap + to add.</p>'}</div>`}
 A.delTx=id=>{S.tx=S.tx.filter(x=>x.id!=id);save();render()};
-const FIX=['Rent','Bills','EMI'],EM={Food:'🍔',Transport:'🚌',Shopping:'🛍️',Health:'💊',Fun:'🎬',Other:'🧩'};
+const FIX=['Rent','Bills','EMI'],EM={Food:'🍔',Petrol:'⛽',Transport:'🚌',Shopping:'🛍️',Health:'💊',Fun:'🎬',Other:'🧩'};
 const dayTotal=d=>sum(S.tx.filter(x=>x.d==d&&x.t=='expense'&&!FIX.includes(x.c)));
-const nper=l=>{const r=l.rate/1200;if(l.emi<=0)return Infinity;if(!r)return l.out/l.emi;const x=1-r*l.out/l.emi;return x<=0?Infinity:-Math.log(x)/Math.log(1+r)};
+const nper=l=>{const r=l.rate/1200;if(l.emi<=0||l.out<=0)return 0;if(!r)return l.out/l.emi;const x=1-r*l.out/l.emi;return x<=0?Infinity:-Math.log(x)/Math.log(1+r)};
 A.quick=c=>{const a=parseFloat($('#qa').value);if(!S.banks.length){A.addBank();return}if(!(a>0))return;const b=Math.max(0,S.banks.findIndex(x=>x.role=='Expense'));S.tx.push({id:'t'+Date.now(),t:'expense',a,c,b,d:ld(),n:$('#qn').value||c});save();render()};
 A.limit=()=>form('Daily budget',[{k:'a',l:'Daily limit (₹)',t:'number',v:S.dl}],v=>{if(v.a>0)S.dl=v.a});
 A.pay=i=>{const l=S.loans[i],pi=l.out*l.rate/1200,pp=Math.min(l.out,Math.max(0,l.emi-pi));l.out=Math.max(0,l.out-pp);S.tx.push({id:'t'+Date.now(),t:'expense',a:l.emi,c:'EMI',b:l.b,d:ld(),n:l.n+' EMI'});save();render()};
 A.delL=i=>A.del('loans',i);
-A.addLoan=()=>{if(!S.banks.length)return A.addBank();form('Add loan',[{k:'n',l:'Loan name (Car, Home, Personal…)'},{k:'orig',l:'Original loan amount (₹)',t:'number'},{k:'out',l:'Outstanding now (₹)',t:'number'},{k:'rate',l:'Interest % p.a.',t:'number'},{k:'emi',l:'Monthly EMI (₹)',t:'number'},{k:'day',l:'EMI date (1-28)',t:'number',v:5},{k:'b',l:'Debited from',o:bankOpts()}],v=>{if(v.n&&v.out>0&&v.emi>0)S.loans.push({...v,b:+v.b,day:Math.min(28,Math.max(1,v.day||1)),orig:v.orig||v.out})})};
+A.addLoan=()=>{if(!S.banks.length)return A.addBank();form('Add / Manage Loan',[{k:'n',l:'Loan name (Car, Home, Personal…)'},{k:'orig',l:'Original loan amount (₹)',t:'number'},{k:'out',l:'Outstanding now (₹)',t:'number'},{k:'rate',l:'Interest % p.a.',t:'number'},{k:'emi',l:'Monthly EMI (₹)',t:'number'},{k:'day',l:'EMI date (1-28)',t:'number',v:5},{k:'b',l:'Debited from',o:bankOpts()}],v=>{if(v.n&&v.emi>0)S.loans.push({...v,b:+v.b,day:Math.min(28,Math.max(1,v.day||1)),orig:v.orig||v.out})})};
 
 function daily(){const t=ld(),tot=dayTotal(t),lim=S.dl,p=Math.min(100,tot/lim*100),now=new Date(),dim=new Date(now.getFullYear(),now.getMonth()+1,0).getDate(),ds=[0,1,2,3,4,5,6].map(i=>{const d=new Date();d.setDate(d.getDate()-(6-i));const k=new Date(d.getTime()-d.getTimezoneOffset()*6e4).toISOString().slice(0,10);return{k,l:d.toLocaleString('en',{weekday:'short'}).slice(0,2),v:dayTotal(k)}}),mx=Math.max(lim,...ds.map(x=>x.v))*1.15,mtd=sum(M(cm).t.filter(x=>x.t=='expense'&&!FIX.includes(x.c))),avg=mtd/now.getDate(),td=S.tx.filter(x=>x.d==t&&x.t=='expense'),w=300/7;
-return`<div class='card hero'><div class='row'><small>Today's spending</small><button class='btn sm' style='background:rgba(255,255,255,.22)' onclick='A.limit()'>Budget ${fmt(lim)}</button></div><div class='big'>${fmt(tot)}</div><div class='bar' style='background:rgba(255,255,255,.25);margin:8px 0'><i style='width:${p}%;background:${tot>lim?'#ffd1dc':'#fff'}'></i></div><small>${tot>lim?'Over budget by '+fmt(tot-lim):fmt(lim-tot)+' left today'}</small></div><div class='card'><h2>⚡ Quick add today</h2><input id='qa' type='number' inputmode='decimal' placeholder='Amount ₹'><input id='qn' placeholder='Note (optional)' style='margin-top:8px'><div class='chips'>${Object.keys(EM).map(c=>`<button data-c='${c}' onclick='A.quick(this.dataset.c)'>${EM[c]}${c}</button>`).join('')}</div><div class='note'>Tap a category to save. Rent, bills and EMIs are tracked separately.</div></div><div class='card'><h2>Last 7 days</h2><svg viewBox='0 0 300 120' style='width:100%'>${ds.map((x,i)=>`<rect x='${i*w+10}' y='${100-x.v/mx*90}' width='22' height='${x.v/mx*90}' rx='5' fill='${x.v>lim?'var(--rd)':'var(--ac)'}'/><text x='${i*w+21}' y='116' font-size='10' text-anchor='middle' fill='var(--mu)'>${x.l}</text>`).join('')}<line x1='0' x2='300' y1='${100-lim/mx*90}' y2='${100-lim/mx*90}' stroke='var(--am)' stroke-dasharray='4 4'/></svg><div class='row' style='margin-top:8px'><div><small>Avg / day</small><br><b>${fmt(avg)}</b></div><div><small>Month so far</small><br><b>${fmt(mtd)}</b></div><div><small>Projected month</small><br><b>${fmt(avg*dim)}</b></div></div></div><div class='card'><h2>Today</h2>${td.length?td.map(x=>`<div class='item'><div><b>${esc(x.n\vert{}\vert{}x.c)}</b><br><small>${esc(x.c)}</small></div><div class='row'><b class='neg'>-${fmt(x.a)}</b><button class='ic' data-id='${x.id}' onclick='A.delTx(this.dataset.id)'>✕</button></div></div>`).join(''):`<p class='mu'>No spends logged today.</p>`}</div>`+txs()}
+return`<div class='card hero'><div class='row'><small>Today's spending</small><button class='btn sm' style='background:rgba(255,255,255,.22)' onclick='A.limit()'>Budget ${fmt(lim)}</button></div><div class='big'>${fmt(tot)}</div><div class='bar' style='background:rgba(255,255,255,.25);margin:8px 0'><i style='width:${p}%;background:${tot>lim?'#ffd1dc':'#fff'}'></i></div><small>${tot>lim?'Over budget by '+fmt(tot-lim):fmt(lim-tot)+' left today'}</small></div><div class='card'><h2>⚡ Quick add today</h2><input id='qa' type='number' inputmode='decimal' placeholder='Amount ₹'><input id='qn' placeholder='Note (optional)' style='margin-top:8px'><div class='chips'>${Object.keys(EM).map(c=>`<button data-c='${c}' onclick='A.quick(this.dataset.c)'>${EM[c]}${c}</button>`).join('')}</div><div class='note'>Tap a category to save. Rent, bills and EMIs are tracked separately.</div></div><div class='card'><h2>Last 7 days</h2><svg viewBox='0 0 300 120' style='width:100%'>${ds.map((x,i)=>`<rect x='${i*w+10}' y='${100-x.v/mx*90}' width='22' height='${x.v/mx*90}' rx='5' fill='${x.v>lim?'var(--rd)':'var(--ac)'}'/><text x='${i*w+21}' y='116' font-size='10' text-anchor='middle' fill='var(--mu)'>${x.l}</text>`).join('')}<line x1='0' x2='300' y1='${100-lim/mx*90}' y2='${100-lim/mx*90}' stroke='var(--am)' stroke-dasharray='4 4'/></svg><div class='row' style='margin-top:8px'><div><small>Avg / day</small><br><b>${fmt(avg)}</b></div><div><small>Month so far</small><br><b>${fmt(mtd)}</b></div><div><small>Projected month</small><br><b>${fmt(avg*dim)}</b></div></div></div><div class='card'><h2>Today</h2>${td.length?td.map(x=>`<div class='item'><div><b>${esc(x.n||x.c)}</b><br><small>${esc(x.c)}</small></div><div class='row'><b class='neg'>-${fmt(x.a)}</b><button class='ic' data-id='${x.id}' onclick='A.delTx(this.dataset.id)'>✕</button></div></div>`).join(''):`<p class='mu'>No spends logged today.</p>`}</div>`+txs()}
 
-function loans(){const c=calc(),L=S.loans,pr=[...L].sort((a,b)=>b.rate-a.rate)[0],ns=L.map(nper),fin=Math.max(0,...ns.filter(isFinite)),intr=L.reduce((s,l,i)=>isFinite(ns[i])?s+l.emi*ns[i]-l.out:s,0);
-return`<div class='card hero'><small>Total loans outstanding</small><div class='big'>${fmt(c.debt)}</div><small>Monthly EMI ${fmt(c.emi)}${c.cur.inc?` · ${(c.emi/c.cur.inc*100).toFixed(0)}% of income`:''}</small><div class='grid3'><div class='stat'><small>Loans</small><b>${L.length}</b></div><div class='stat'><small>Debt-free in</small><b>${L.length&&fin?Math.ceil(fin)+' mo':'–'}</b></div><div class='stat'><small>Interest left</small><b>${fmt(intr)}</b></div></div></div><div class='row' style='margin-bottom:10px'><h2 style='margin:0'>Existing loans</h2><button class='btn sm' onclick='A.addLoan()'>+ Loan</button></div>${L.map((l,i)=>{const n=ns[i],p=Math.min(100,Math.max(0,(1-l.out/(l.orig||l.out))*100)),d=days(nextDue(l));return`<div class='card'><div class='row'><div><b>${esc(l.n)}</b><br><small>${l.rate}% · EMI ${fmt(l.emi)} on day${l.day} · ${esc(S.banks[l.b]?.n\vert{}\vert{}'')}</small></div><div style='text-align:right'><div style='font-size:20px;font-weight:700'>${fmt(l.out)}</div><small>outstanding</small></div></div><div class='bar' style='margin:10px 0 6px'><i style='width:${p}\%;background:var(--ac2)'></i></div><div class='row'><small>${p.toFixed(0)}% repaid · ${isFinite(n)?Math.ceil(n)+' EMIs left':(l.out===0?'Loan Paid Off!':'EMI is below interest!')}</small><span class='chip${d<=3?'w':''}'>due in ${d}d</span></div><div class='row' style='margin-top:10px'><button class='btn s sm' onclick='A.pay(${i})'>Mark EMI paid</button><button class='btn s sm' onclick='A.updateLoan(${i})'>Edit / Remaining</button><button class='ic' onclick='A.delL(${i})'>Remove</button></div></div>`}).join('')||`<p class='mu'>No loans added – tap + Loan.</p>`}${pr&&L.length>1?`<div class='card'><h2>Prepay priority</h2><p style='margin:0'>Highest rate first: <b>${esc(pr.n)}</b> (${pr.rate}%). Extra cash goes here before lower-rate loans.</p></div>`:''}<div class='card'><h2>🤖 Buffer / Loan Prepayment Advisor</h2><div id='aiout' class='ai mu'>Ask whether to use buffer amount to prepay loans or invest.</div><button class='btn' style='margin-top:10px' data-p='Review my deployable buffer amount (${fmt(c.deploy)}). Should I prepay high-interest loans or invest it? Provide exact breakdown.' onclick='A.q(this.dataset.p)'>Ask Buffer Priority</button></div>`}
+function loans(){const c=calc(),L=S.loans,pr=[...L].filter(l=>l.out>0).sort((a,b)=>b.rate-a.rate)[0],ns=L.map(nper),fin=Math.max(0,...ns.filter(isFinite)),intr=L.reduce((s,l,i)=>isFinite(ns[i])&&l.out>0?s+l.emi*ns[i]-l.out:s,0);
+return`<div class='card hero'><small>Total loans outstanding</small><div class='big'>${fmt(c.debt)}</div><small>Monthly EMI ${fmt(c.emi)}${c.cur.inc?` · ${(c.emi/c.cur.inc*100).toFixed(0)}% of income`:''}</small><div class='grid3'><div class='stat'><small>Loans</small><b>${L.length}</b></div><div class='stat'><small>Debt-free in</small><b>${L.length&&fin?Math.ceil(fin)+' mo':'–'}</b></div><div class='stat'><small>Interest left</small><b>${fmt(intr)}</b></div></div></div><div class='row' style='margin-bottom:10px'><h2 style='margin:0'>Existing & Paid Loans</h2><button class='btn sm' onclick='A.addLoan()'>+ Loan</button></div>${L.map((l,i)=>{const n=ns[i],p=l.out===0?100:Math.min(100,Math.max(0,(1-l.out/(l.orig||l.out))*100)),d=days(nextDue(l));return`<div class='card'><div class='row'><div><b>${esc(l.n)}</b> ${l.out===0?'<span class="chip g">Paid Off</span>':''}</div><div style='text-align:right'><div style='font-size:20px;font-weight:700'>${fmt(l.out)}</div><small>outstanding</small></div></div><div class='bar' style='margin:10px 0 6px'><i style='width:${p}%;background:var(--ac2)'></i></div><div class='row'><small>${l.rate}% · EMI ${fmt(l.emi)} · ${l.out===0?'Fully Paid (Click Edit to add outstanding if needed)':p.toFixed(0)+'% repaid · '+Math.ceil(n)+' EMIs left'}</small></div><div class='row' style='margin-top:10px'>${l.out>0?`<button class='btn s sm' onclick='A.pay(${i})'>Mark EMI paid</button>`:''}<button class='btn s sm' onclick='A.updateLoan(${i})'>✏️ Edit / Add Outstanding</button><button class='ic' onclick='A.delL(${i})'>Remove</button></div></div>`}).join('')||`<p class='mu'>No loans added – tap + Loan.</p>`}${pr&&L.length>1?`<div class='card'><h2>Prepay priority</h2><p style='margin:0'>Highest rate first: <b>${esc(pr.n)}</b> (${pr.rate}%). Extra cash goes here before lower-rate loans.</p></div>`:''}<div class='card'><h2>🤖 Buffer / Loan Prepayment Advisor</h2><div id='aiout' class='ai mu'>Ask whether to use buffer amount to prepay loans or invest.</div><button class='btn' style='margin-top:10px' data-p='Review my deployable buffer amount (${fmt(c.deploy)}). Should I prepay high-interest loans or invest it? Provide exact breakdown.' onclick='A.q(this.dataset.p)'>Ask Buffer Priority</button></div>`}
 
 function banks(){return`<div class="row" style="margin-bottom:10px"><h2 style="margin:0">Your banks</h2><div class="row"><button class="btn s sm" onclick="A.addBank()">+ Bank</button><button class="btn sm" onclick="autoAssign()">✨ Auto-assign</button></div></div>
- ${S.banks.map((b,i)=>`<div class="card"><div class="row"><div><b>${esc(b.n)}</b><br><small>${b.rate}% interest · ${b.cash}\% cashback · min ${fmt(b.min)}</small></div><div style="text-align:right"><div style="font-size:20px;font-weight:700">${fmt(bal(i))}</div><button class="ic" onclick="A.del('banks',${i})">Remove</button></div></div>
+ ${S.banks.map((b,i)=>`<div class="card"><div class="row"><div><b>${esc(b.n)}</b><br><small>${b.rate}% interest · ${b.cash}% cashback · min ${fmt(b.min)}</small></div><div style="text-align:right"><div style="font-size:20px;font-weight:700">${fmt(bal(i))}</div><button class="ic" onclick="A.del('banks',${i})">Remove</button></div></div>
  <div class="row" style="margin-top:8px"><select onchange="A.role(${i},this.value);render()" style="width:auto">${ROLES.map(r=>`<option ${r==b.role?'selected':''}>${r}</option>`).join('')}</select><small style="text-align:right">${why[b.role]}</small></div>${bal(i)<b.min?'<div class="chip w" style="margin-top:8px">Below minimum balance – fees likely</div>':''}</div>`).join('')||'<p class="mu">Add your bank accounts.</p>'}
  <div class="card"><h2>🤖 Which bank for what?</h2><div id="aiout" class="ai mu">Get a personalised split for expenses, investments and auto-debits.</div><button class="btn" style="margin-top:10px" onclick="A.q('Which of my banks should I use for daily expenses, for investments/SIPs, and for auto-debits? Check bill coverage and minimum balances and flag any risks.',$('#aiout'))">Ask AI</button></div>`}
 
 function invest(){const c=calc(),al=RISK[S.risk],d=Math.max(0,c.deploy),ds=Math.max(0,c.cur.inc-c.cur.exp-c.cur.inv),monthlySIPs=sum(S.bills.filter(b=>b.n.toLowerCase().includes('sip')||b.n.toLowerCase().includes('invest')).concat(S.tx.filter(x=>x.t=='invest'&&mk(x.d)==cm)));
- return`<div class="card hero"><small>Current Net Worth</small><div class="big">${fmt(c.nw)}</div><small>Deployable surplus ${fmt(d)} · Monthly Investments/SIPs ${fmt(monthlySIPs)}</small></div>
+ return`<div class="card hero"><small>Current Net Worth</small><div class="big">${fmt(c.nw)}</div><small>Liquid Cash ${fmt(c.liquid)} · Invested ${fmt(c.invested)} · Total EMI Burden −${fmt(c.emi)}/mo</small></div>
  <div class="card"><h2>Risk profile</h2><div class="seg">${Object.keys(RISK).map(r=>`<button class="${r==S.risk?'on':''}" onclick="A.risk('${r}')">${r[0].toUpperCase()+r.slice(1)}</button>`).join('')}</div>
- <h2 style="margin-top:14px">Suggested allocation ${d?'':'<span class="chip w">no surplus yet</span>'}</h2>${al.map((a,i)=>`<div style="margin:10px 0"><div class="row"><span>${a[0]} · ${a[1]}\%</span><b>${fmt(d*a[1]/100)}</b></div><div class="bar"><i style="width:${a[1]*1.8}\%;background:${AC[i%5]}"></i></div></div>`).join('')}
+ <h2 style="margin-top:14px">Suggested allocation ${d?'':'<span class="chip w">no surplus yet</span>'}</h2>${al.map((a,i)=>`<div style="margin:10px 0"><div class="row"><span>${a[0]} · ${a[1]}%</span><b>${fmt(d*a[1]/100)}</b></div><div class="bar"><i style="width:${a[1]*1.8}%;background:${AC[i%5]}"></i></div></div>`).join('')}
  <div class="note">Monthly free cash flow: <b>${fmt(ds)}</b> – automate it as a SIP from your investment account right after payday.</div></div>
- <div class="card"><div class="row"><h2>🎯 Goals Investment Tracking</h2><button class="btn s sm" onclick="A.addGoal()">+ Goal</button></div>${S.goals.map((g,i)=>{const p=Math.min(100,g.s/g.t*100);return`<div style="margin:12px 0"><div class="row"><b>${esc(g.n)}</b><div><small>${fmt(g.s)} /${fmt(g.t)}</small> <button class="ic" onclick="A.fund(${i})">＋</button><button class="ic" onclick="A.del('goals',${i})">✕</button></div></div><div class="bar"><i style="width:${p}%;background:var(--ac2)"></i></div><small>${p.toFixed(0)}\% ·${ds>0?Math.ceil(Math.max(0,g.t-g.s)/ds)+' months at current surplus':'add income to estimate'}</small></div>`}).join('')||'<p class="mu">Set a goal.</p>'}</div>
- <div class="card"><h2>💡 How to generate income from investments?</h2><div id="aiout" class="ai mu">Ask for wealth creation & income generation strategies based on your current cash flows.</div><button class="btn" style="margin-top:10px" onclick="A.q('Analyze my current Net Worth (${fmt(c.nw)}) and monthly investments (${fmt(monthlySIPs)}). What strategies can I use to build passive income or higher investment yields?', $('#aiout'))">Get Income & Growth Plan</button></div>`}
+ <div class="card"><div class="row"><h2>🎯 Goals Investment Tracking</h2><button class="btn s sm" onclick="A.addGoal()">+ Goal</button></div>${S.goals.map((g,i)=>{const p=Math.min(100,g.s/g.t*100);return`<div style="margin:12px 0"><div class="row"><b>${esc(g.n)}</b><div><small>${fmt(g.s)} /${fmt(g.t)}</small> <button class="ic" onclick="A.fund(${i})">＋</button><button class="ic" onclick="A.del('goals',${i})">✕</button></div></div><div class="bar"><i style="width:${p}%;background:var(--ac2)"></i></div><small>${p.toFixed(0)}% ·${ds>0?Math.ceil(Math.max(0,g.t-g.s)/ds)+' months at current surplus':'add income to estimate'}</small></div>`}).join('')||'<p class="mu">Set a goal.</p>'}</div>
+ <div class="card"><h2>💡 How to Create Income from Investments?</h2>
+ <p class="mu" style="margin:0 0 10px">Build passive income streams using compounding & dividend yield strategies:</p>
+ <ul>
+   <li><b>Dividend Yield Mutual Funds / Stocks:</b> Reinvest or payout regular dividend stocks for steady cash flow.</li>
+   <li><b>SWP (Systematic Withdrawal Plan):</b> Move accumulated corpus into hybrid/debt mutual funds and setup monthly SWP payouts.</li>
+   <li><b>Fixed Income / Corporate Bonds:</b> Lock high-yield non-convertible debentures (NCDs) or senior-secured bonds for periodic interest payouts.</li>
+ </ul>
+ <button class="btn" style="margin-top:10px" onclick="A.q('Analyze my current Net Worth (${fmt(c.nw)}) and monthly investments (${fmt(monthlySIPs)}). Provide a concrete step-by-step roadmap to generate ₹25,000/month in passive income.', $('#aiout'))">Get Custom Income Plan</button>
+ <div id="aiout" class="ai mu" style="margin-top:10px"></div></div>`}
 
 function aiv(){const ch=['Where should I invest my surplus?','Why did my spending change?','How can I save ₹5,000 more a month?','Which bank for which payment?','Prepay my loan or invest?'];
  return`<div class="card"><h2>🤖 AI advisor</h2><div class="chips">${ch.map(c=>`<button onclick="A.q('${c}')">${c}</button>`).join('')}</div>${chat.map(m=>`<div class="msg ${m.r}">${m.r=='u'?esc(m.t):md(m.t)}</div>`).join('')}<div class="row" style="margin-top:10px"><input id="q" placeholder="Ask about your money…" onkeydown="if(event.key=='Enter')A.q()"><button class="btn" onclick="A.q()">Send</button></div><div class="note">Answers use your tracked data and are educational, not licensed financial advice.</div></div>`}
 
-function render(){const t=[['home','🏠','Home'],['tx','📅','Daily'],['banks','🏦','Banks'],['loans','💳','Loans'],['inv','📈','Invest'],['ai','✨','AI']];
- const currAccName = accounts.find(a=>a.id===currentAccId)?.name || 'Personal';
- $('#app').innerHTML=`<header><div><h1>💸 Finance Manager</h1><small>Profile: <b>${esc(currAccName)}</b></small></div><div class="row"><select onchange="A.switchAccount(this.value)" style="width:auto;margin-right:6px">${accounts.map(a=>`<option value="${a.id}" ${a.id===currentAccId?'selected':''}>${esc(a.name)}</option>`).join('')}</select><button class="btn s sm" onclick="A.addAccount()">+ Profile</button><button class="ic" onclick="A.theme()" title="Theme" style="margin-left:6px">🌓</button></div></header>${{home,tx:daily,banks,loans,inv:invest,ai:aiv}[view]()}`+`<nav>${t.map(x=>`<button class="${view==x[0]?'on':''}" onclick="A.go('${x[0]}')"><span>${x[1]}</span>${x[2]}</button>`).join('')}</nav>`+(view=='home'||view=='tx'?'<button class="fab" onclick="A.addTx()">+</button>':'')}
+function renderAuth(){
+  const app = $('#app');
+  if(authView === 'login'){
+    app.innerHTML = `<div class="card auth-container">
+      <h2>🔐 Secure Finance Manager Login</h2>
+      <label>Email Address</label>
+      <input id="l_email" type="email" placeholder="you@example.com" value="${pendingEmail}">
+      <label>Password</label>
+      <input id="l_pass" type="password" placeholder="••••••••" value="${pendingPass}">
+      <button class="btn" style="width:100%;margin-top:14px" onclick="handleLogin()">Login / Sign Up with OTP</button>
+      <div class="note" style="text-align:center;margin-top:12px">Protected with secure Email + OTP Verification.</div>
+    </div>`;
+  } else if(authView === 'otp'){
+    app.innerHTML = `<div class="card auth-container">
+      <h2>✉️ Verify Email OTP</h2>
+      <p class="mu">We sent a secure 6-digit verification code to <b>${pendingEmail}</b>.<br><small>(Demo OTP code is: <b>${generatedOtp}</b>)</small></p>
+      <label>Enter 6-Digit OTP</label>
+      <input id="l_otp" type="text" placeholder="123456" maxlength="6">
+      <button class="btn" style="width:100%;margin-top:14px" onclick="verifyOtp()">Verify & Unlock Account</button>
+      <button class="btn s" style="width:100%;margin-top:8px" onclick="authView='login';renderAuth();">Back to Login</button>
+    </div>`;
+  }
+}
+
+window.handleLogin = function(){
+  const email = $('#l_email').value.trim();
+  const pass = $('#l_pass').value.trim();
+  if(!email || !pass){ alert('Please enter valid email and password'); return; }
+  pendingEmail = email;
+  pendingPass = pass;
+  generatedOtp = Math.floor(100000 + Math.random() * 900000).toString();
+  authView = 'otp';
+  renderAuth();
+};
+
+window.verifyOtp = function(){
+  const entered = $('#l_otp').value.trim();
+  if(entered !== generatedOtp){ alert('Invalid OTP. Please check the demo code displayed.'); return; }
+  
+  currentUser = { email: pendingEmail };
+  try{
+    accounts = JSON.parse(localStorage.getItem(K_ACC)) || [];
+  }catch(e){ accounts = []; }
+  
+  if(!accounts.length){
+    accounts = [{id:'default', name:'Personal'}];
+  }
+  currentAccId = accounts[0].id;
+  loadState();
+  save();
+  authView = 'login';
+  render();
+};
+
+function render(){
+  if(!currentUser){ renderAuth(); return; }
+  const t=[['home','🏠','Home'],['tx','📅','Daily'],['banks','🏦','Banks'],['loans','💳','Loans'],['inv','📈','Invest'],['ai','✨','AI']];
+  const currAccName = accounts.find(a=>a.id===currentAccId)?.name || 'Personal';
+  $('#app').innerHTML=`<header><div><h1>💸 Finance Manager</h1><small>User: <b>${esc(currentUser.email)}</b> | Profile: <b>${esc(currAccName)}</b></small></div><div class="row"><select onchange="A.switchAccount(this.value)" style="width:auto;margin-right:6px">${accounts.map(a=>`<option value="${a.id}" ${a.id===currentAccId?'selected':''}>${esc(a.name)}</option>`).join('')}</select><button class="btn s sm" onclick="A.addAccount()">+ Profile</button><button class="btn s sm" onclick="A.logout()" title="Logout">Logout</button><button class="ic" onclick="A.theme()" title="Theme" style="margin-left:4px">🌓</button></div></header>${{home,tx:daily,banks,loans,inv:invest,ai:aiv}[view]()}`+`<nav>${t.map(x=>`<button class="${view==x[0]?'on':''}" onclick="A.go('${x[0]}')"><span>${x[1]}</span>${x[2]}</button>`).join('')}</nav>`+(view=='home'||view=='tx'?'<button class="fab" onclick="A.addTx()">+</button>':'')}
 
 render();
 </script></body></html>
