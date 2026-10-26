@@ -43,7 +43,7 @@ label{display:block;font-size:12px;color:var(--mu);margin:10px 0 4px}input,selec
 <body>
 <div id="app"></div>
 <script>
-const $=s=>document.querySelector(s),K_ACC='fm_accounts_v5',ld=()=>{const d=new Date();return new Date(d.getTime()-d.getTimezoneOffset()*6e4).toISOString().slice(0,10)};
+const $=s=>document.querySelector(s),K_ACC='fm_accounts_v6',ld=()=>{const d=new Date();return new Date(d.getTime()-d.getTimezoneOffset()*6e4).toISOString().slice(0,10)};
 const fmt=n=>(n<0?'-':'')+'₹'+Math.abs(Math.round(n)).toLocaleString('en-IN');
 const esc=s=>String(s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const iso=d=>d.toISOString().slice(0,10),mk=d=>d.slice(0,7);
@@ -90,6 +90,7 @@ async function verifyTotpToken(secret, userToken) {
 
 let accounts = [], currentAccId = '', currentUser = null, S = null, view='home', chat=[], busy=false;
 let authStep = 'login', tempEmail = '', tempPass = '', tempSecret = '';
+let projYear = 2050, projCagr = 12;
 
 function seed(){
   let r=7;const rnd=()=>(r=(r*9301+49297)%233280)/233280,tx=[],now=new Date();
@@ -174,16 +175,54 @@ function calc(){
   }
 }
 
+// Aggregated metrics for Weekly, Monthly, Yearly
+function getAggregates(){
+  const now = new Date(), nowIso = ld(), curYear = now.getFullYear().toString(), curMonth = mk(nowIso);
+  const txs = S ? S.tx : [];
+  
+  // Weekly (last 7 days)
+  const weekAgo = new Date(now.getTime() - 7*864e5);
+  const weekTxs = txs.filter(x => new Date(x.d) >= weekAgo);
+  const wInc = sum(weekTxs.filter(x=>x.t=='income')), wExp = sum(weekTxs.filter(x=>x.t=='expense'));
+
+  // Monthly (current month)
+  const mInc = sum(txs.filter(x=>mk(x.d)==curMonth && x.t=='income'));
+  const mExp = sum(txs.filter(x=>mk(x.d)==curMonth && x.t=='expense'));
+
+  // Yearly (current year)
+  const yInc = sum(txs.filter(x=>x.d.startsWith(curYear) && x.t=='income'));
+  const yExp = sum(txs.filter(x=>x.d.startsWith(curYear) && x.t=='expense'));
+
+  return {
+    weekly: { inc: wInc, exp: wExp, sav: wInc - wExp },
+    monthly: { inc: mInc, exp: mExp, sav: mInc - mExp },
+    yearly: { inc: yInc, exp: yExp, sav: yInc - yExp }
+  };
+}
+
 function categoryBalancesWidget(){
   const c=calc().cur, spent={Food:0, Petrol:0, Fun:0};
   c.t.filter(x=>x.t=='expense').forEach(x=>{ if(spent[x.c]!==undefined) spent[x.c]+=x.a; });
   const foodB=S.budgets.Food||10000, petrolB=S.budgets.Petrol||4000, funB=S.budgets.Fun||4000;
-  return `<div class="card"><h2>⛽ Monthly Expense Allowances</h2>
-  <div class="grid3">
-    <div class="stat"><small>Petrol Bal</small><b>${fmt(petrolB - spent.Petrol)}</b><small class="mu">Spent: ${fmt(spent.Petrol)}</small></div>
-    <div class="stat"><small>Food Bal</small><b>${fmt(foodB - spent.Food)}</b><small class="mu">Spent: ${fmt(spent.Food)}</small></div>
-    <div class="stat"><small>Entertainment</small><b>${fmt(funB - spent.Fun)}</b><small class="mu">Spent: ${fmt(spent.Fun)}</small></div>
-  </div></div>`;
+  return `<div class="card">
+    <div class="row"><h2>⛽ Monthly Expense Allowances</h2><button class="btn s sm" onclick="A.setBudgets()">⚙️ Edit Budgets</button></div>
+    <div class="grid3" style="margin-top:10px">
+      <div class="stat"><small>Petrol Bal</small><b>${fmt(petrolB - spent.Petrol)}</b><small class="mu">Spent: ${fmt(spent.Petrol)} / ${fmt(petrolB)}</small></div>
+      <div class="stat"><small>Food Bal</small><b>${fmt(foodB - spent.Food)}</b><small class="mu">Spent: ${fmt(spent.Food)} / ${fmt(foodB)}</small></div>
+      <div class="stat"><small>Entertainment</small><b>${fmt(funB - spent.Fun)}</b><small class="mu">Spent: ${fmt(spent.Fun)} / ${fmt(funB)}</small></div>
+    </div></div>`;
+}
+
+function aggregatedSummaryWidget(){
+  const ag = getAggregates();
+  return `<div class="card">
+    <h2>📊 Income, Expenses & Savings Summary</h2>
+    <div class="grid3" style="text-align:center;margin-top:10px">
+      <div class="stat"><small><b>Weekly</b></small><br><small class="pos">Inc: ${fmt(ag.weekly.inc)}</small><br><small class="neg">Exp: ${fmt(ag.weekly.exp)}</small><br><b>Sav: ${fmt(ag.weekly.sav)}</b></div>
+      <div class="stat"><small><b>Monthly</b></small><br><small class="pos">Inc: ${fmt(ag.monthly.inc)}</small><br><small class="neg">Exp: ${fmt(ag.monthly.exp)}</small><br><b>Sav: ${fmt(ag.monthly.sav)}</b></div>
+      <div class="stat"><small><b>Yearly</b></small><br><small class="pos">Inc: ${fmt(ag.yearly.inc)}</small><br><small class="neg">Exp: ${fmt(ag.yearly.exp)}</small><br><b>Sav: ${fmt(ag.yearly.sav)}</b></div>
+    </div>
+  </div>`;
 }
 
 function home(){
@@ -196,6 +235,7 @@ function home(){
     <div class="stat"><small>Monthly EMI</small><b>${fmt(c.emi)}</b></div>
   </div></div>
   ${categoryBalancesWidget()}
+  ${aggregatedSummaryWidget()}
   <div class="card"><h2>📈 Investment & Insurance Monthly Commitments</h2>
   <div class="row"><div><small>Monthly SIPs & Premiums</small><br><b style="font-size:18px">${fmt(c.monthlyInvestCommitment)}</b></div><button class="btn s sm" onclick="A.go('inv')">Manage in Invest Tab</button></div></div>`;
 }
@@ -220,13 +260,32 @@ function loans(){
 }
 
 function banks(){
-  return `<div class="row" style="margin-bottom:10px"><h2 style="margin:0">Bank Accounts</h2><div class="row"><button class="btn s sm" onclick="A.addBank()">+ Bank</button><button class="btn sm" onclick="autoAssign()">✨ Auto-assign</button></div></div>
+  return `<div class="row" style="margin-bottom:10px"><h2 style="margin:0">Bank Accounts</h2><div class="row"><button class="btn s sm" onclick="A.addBank()">+ Bank</button><button class="btn sm" onclick="A.creditMoney()">+ Credit Money</button><button class="btn sm" onclick="autoAssign()">✨ Auto-assign</button></div></div>
   ${S.banks.map((b,i)=>`<div class="card"><div class="row"><div><b>${esc(b.n)}</b><br><small>${b.rate}% interest · ${b.cash}% cashback</small></div><div style="text-align:right"><div style="font-size:20px;font-weight:700">${fmt(bal(i))}</div><button class="ic" onclick="A.del('banks',${i})">Remove</button></div></div><div class="row" style="margin-top:8px"><select onchange="A.role(${i},this.value);render()" style="width:auto">${ROLES.map(r=>`<option ${r==b.role?'selected':''}>${r}</option>`).join('')}</select></div></div>`).join('')||'<p class="mu">No bank accounts.</p>'}`;
 }
 
 function invest(){
   const c=calc(), invs=S.investments||[];
+  const currentYear = new Date().getFullYear();
+  const yearsDiff = Math.max(1, projYear - currentYear);
+  const monthlyTot = c.monthlyInvestCommitment;
+  const pv = c.invested;
+  const r = (projCagr / 100) / 12;
+  const n = yearsDiff * 12;
+  // Future value formula: PV * (1+r)^n + PMT * [((1+r)^n - 1) / r]
+  let futureVal = pv * Math.pow(1 + r, n);
+  if(r > 0) futureVal += monthlyTot * ((Math.pow(1 + r, n) - 1) / r);
+  else futureVal += pv + monthlyTot * n;
+
   return `<div class="card hero"><small>Current Total Net Worth</small><div class="big">${fmt(c.nw)}</div><small>Total Investment Value: ${fmt(c.invested)} · Monthly Commitment: ${fmt(c.monthlyInvestCommitment)}</small></div>
+  
+  <div class="card">
+    <div class="row"><h2>📈 Portfolio Projection (e.g., Year ${projYear})</h2><button class="btn s sm" onclick="A.setProjection()">⚙️ Configure</button></div>
+    <div class="row" style="margin:10px 0"><div><small>Target Year</small><br><b>${projYear} (${yearsDiff} yrs)</b></div><div><small>Assumed CAGR</small><br><b>${projCagr}% p.a.</b></div><div><small>Projected Corpus</small><br><b class="pos" style="font-size:18px">${fmt(futureVal)}</b></div></div>
+    <div class="bar"><i style="width:100%;background:linear-gradient(90deg,#6c5ce7,#00b8a0)"></i></div>
+    <small class="mu" style="margin-top:6px;display:block">Based on current corpus (${fmt(pv)}) and monthly SIP commitments (${fmt(monthlyTot)}).</small>
+  </div>
+
   <div class="row" style="margin-bottom:10px"><h2 style="margin:0">🛡️ SIPs & Insurance Premiums</h2><button class="btn sm" onclick="A.addInvestment()">+ Investment / Insurance</button></div>
   ${invs.map((inv, i)=>`<div class="card"><div class="row"><div><b>${esc(inv.n)}</b> <span class="chip g">${esc(inv.type||'Investment')}</span><br><small>Monthly Outflow: <b>${fmt(inv.a)}</b> · Expected Rate: ${inv.rate||0}%</small></div><div style="text-align:right"><div style="font-size:18px;font-weight:700">${fmt(inv.val||0)}</div><small>Accumulated Value</small></div></div><div class="row" style="margin-top:10px"><button class="btn s sm" onclick="A.payInvestment(${i})">Mark Paid This Month</button><button class="btn s sm" onclick="A.editInvestment(${i})">✏️ Edit</button><button class="ic" onclick="A.delInvestment(${i})">Remove</button></div></div>`).join('')||'<p class="mu">No investments or premiums added yet.</p>'}
   
@@ -259,8 +318,32 @@ const A = {
   },
   setBudgets(){
     const cats = Object.keys(CATS);
-    const fields = cats.map(c=>({k:c, l:`${c} Budget (₹)`, t:'number', v:S.budgets[c]||0}));
-    form('Set Category Budgets', fields, v=>{ S.budgets = v; save(); render(); });
+    const fields = cats.map(c=>({k:c, l:`${c} Monthly Budget (₹)`, t:'number', v:S.budgets[c]||0}));
+    form('Edit Monthly Category Budgets', fields, v=>{ S.budgets = v; save(); render(); });
+  },
+  setProjection(){
+    form('Configure Portfolio Projection', [
+      {k:'year', l:'Target Future Year (e.g. 2050)', t:'number', v:projYear},
+      {k:'cagr', l:'Assumed Annual Return CAGR %', t:'number', v:projCagr}
+    ], v=>{
+      if(v.year > 2020) projYear = v.year;
+      if(v.cagr >= 0) projCagr = v.cagr;
+      render();
+    });
+  },
+  creditMoney(){
+    if(!S.banks.length)return A.addBank();
+    form('Credit Money to Account', [
+      {k:'a', l:'Credited Amount (₹)', t:'number'},
+      {k:'n', l:'Source / Note (e.g. Refund, Freelance, Gift)', v:'Credit'},
+      {k:'b', l:'Deposit to Bank', o:bankOpts()},
+      {k:'d', l:'Date', t:'date', v:ld()}
+    ], v=>{
+      if(v.a > 0){
+        S.tx.push({id:'t'+Date.now(), t:'income', a:v.a, c:'Other income', b:+v.b, d:v.d, n:v.n});
+        save(); render();
+      }
+    });
   },
   addTx(){
     if(!S.banks.length)return A.addBank();
