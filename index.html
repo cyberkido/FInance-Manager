@@ -38,6 +38,7 @@ label{display:block;font-size:12px;color:var(--mu);margin:10px 0 4px}input,selec
 .note{font-size:12px;color:var(--mu);margin-top:8px}
 .auth-container{max-width:400px;margin:40px auto;padding:20px}
 .secret-box{background:var(--bg);padding:10px;border-radius:10px;font-family:monospace;font-weight:bold;letter-spacing:1px;text-align:center;word-break:break-all;margin:10px 0}
+.chat-container{display:flex;flex-direction:column;height:450px}.chat-history{flex:1;overflow-y:auto;padding-right:4px;margin-bottom:10px}
 </style>
 </head>
 <body>
@@ -278,7 +279,6 @@ function invest(){
     totalMonthlySIP += (inv.a || 0);
 
     if(inv.type === 'Lumpsum / Fixed Maturity') {
-      // If user provided a specific expected maturity/return amount, use it or compound principal
       const waitYears = Math.max(0, inv.waitYears || 3);
       const r = (inv.rate || 8) / 100;
       const maturity = inv.maturityVal > 0 ? inv.maturityVal : ((inv.val || 0) * Math.pow(1 + r, waitYears));
@@ -344,7 +344,99 @@ function invest(){
   <div class="card"><div class="row"><h2>🎯 Future Goals</h2><button class="btn s sm" onclick="A.addGoal()">+ Add Goal</button></div>${S.goals.map((g,i)=>{const p=Math.min(100,g.s/g.t*100);return`<div style="margin:12px 0"><div class="row"><b>${esc(g.n)}</b><div><small>${fmt(g.s)} / ${fmt(g.t)}</small> <button class="ic" onclick="A.fund(${i})">＋</button><button class="ic" onclick="A.del('goals',${i})">✕</button></div></div><div class="bar"><i style="width:${p}%;background:var(--ac2)"></i></div></div>`}).join('')||'<p class="mu">Set a goal.</p>'}</div>`;
 }
 
-function aiv(){ return `<div class="card"><h2>✨ AI Advisor</h2><p class="mu">Ask questions about allocations, loan prepayments, or budgets.</p></div>`; }
+function generateAiResponse(input) {
+  const text = input.toLowerCase();
+  const c = calc();
+  const activeLoans = (S.loans || []).filter(l => l.out > 0);
+  const totalDebt = c.debt;
+  const liquid = c.liquid;
+  const deploy = c.deploy;
+
+  // Extract amount mentioned in input if any
+  let numMatch = text.match(/(\d+[\d,]*\s*k?)/i);
+  let valMentioned = 0;
+  if(numMatch) {
+    let raw = numMatch[0].toLowerCase().replace(/,/g,'');
+    if(raw.includes('k')) {
+      valMentioned = parseFloat(raw) * 1000;
+    } else {
+      valMentioned = parseFloat(raw);
+    }
+  }
+
+  // Debt & Buffer Check Logic
+  if(text.includes('buffer') || text.includes('invest') || text.includes('loan') || text.includes('emi') || text.includes('extra') || valMentioned > 0) {
+    if(activeLoans.length > 0) {
+      let mainLoan = activeLoans.reduce((prev, curr) => (prev.rate > curr.rate) ? prev : curr, activeLoans[0]);
+      let amountStr = valMentioned > 0 ? fmt(valMentioned) : 'your buffer cash';
+      return `I noticed you have active loans (such as <b>${esc(mainLoan.n)}</b> with total outstanding debt of ${fmt(totalDebt)} and monthly EMI of ${fmt(c.emi)}).<br><br>💡 <b>Smart Advice:</b> If you have ${amountStr} available, it is recommended to use it towards clearing or prepaying your high-interest loan first instead of investing it all. Clearing loan burden saves interest costs and relieves monthly financial pressure!`;
+    } else {
+      let amountStr = valMentioned > 0 ? fmt(valMentioned) : 'your extra money';
+      return `Great news! You have no active loans or debt burden. You can safely allocate ${amountStr} into your high-return investments (like your active SIPs) or direct it towards your financial goals.`;
+    }
+  }
+
+  if(text.includes('goal') || text.includes('target')) {
+    if(S.goals && S.goals.length > 0) {
+      let gList = S.goals.map(g => `• <b>${esc(g.n)}</b>: Target ${fmt(g.t)} (Saved: ${fmt(g.s)})`).join('<br>');
+      return `Here is your goal progress:<br>${gList}<br><br>Keep funding your emergency fund and goals regularly!`;
+    } else {
+      return `You haven't set any financial goals yet. You can add goals under the <b>Invest</b> tab!`;
+    }
+  }
+
+  if(text.includes('net worth') || text.includes('balance') || text.includes('summary')) {
+    return `Here is your quick summary:<br>• <b>Net Worth:</b> ${fmt(c.nw)}<br>• <b>Liquid Cash:</b> ${fmt(c.liquid)}<br>• <b>Investments:</b> ${fmt(c.invested)}<br>• <b>Total Debt:</b> ${fmt(c.debt)}<br>• <b>Monthly EMI:</b> ${fmt(c.emi)}`;
+  }
+
+  // General default smart response based on profile
+  if(activeLoans.length > 0) {
+    return `Based on your profile, you have a total debt of <b>${fmt(totalDebt)}</b> (EMI: <b>${fmt(c.emi)}</b>) and <b>${fmt(c.invested)}</b> in investments.<br><br>Whenever you have extra buffer cash, prioritize paying off your outstanding loans to reduce your monthly EMI burden before adding to aggressive investments.`;
+  } else {
+    return `Your finances look balanced! Liquid Cash: <b>${fmt(liquid)}</b>, Total Investments: <b>${fmt(c.invested)}</b> with no outstanding debt. Let me know if you need investment allocation advice!`;
+  }
+}
+
+function sendChat() {
+  const inputEl = $('#chatInput');
+  if(!inputEl) return;
+  const val = inputEl.value.trim();
+  if(!val) return;
+
+  chat.push({ role: 'u', text: val });
+  inputEl.value = '';
+  
+  // Generate automated financial response based on current accounts/investments/EMIs
+  const replyText = generateAiResponse(val);
+  chat.push({ role: 'a', text: replyText });
+
+  render();
+}
+
+function aiv(){
+  const quickPrompts = [
+    "I have 10k buffer cash, should I invest or clear loan?",
+    "Show my net worth & loan summary",
+    "How are my goals progressing?"
+  ];
+
+  return `<div class="card">
+    <h2>✨ Financial AI Advisor</h2>
+    <p class="mu">Ask questions based on your real-time investments, goals, loans, and EMIs.</p>
+  </div>
+  <div class="card chat-container">
+    <div class="chat-history" id="chatBox">
+      ${chat.length ? chat.map(m => `<div class="msg ${m.role}">${m.text}</div>`).join('') : '<p class="mu" style="text-align:center;margin-top:40px">Hello! Ask me how to manage your extra cash, debt prepayments, or investment allocations based on your live financial data.</p>'}
+    </div>
+    <div class="chips" style="margin-bottom:8px">
+      ${quickPrompts.map(p => `<button onclick="document.querySelector('#chatInput').value='${p}';sendChat()">${p}</button>`).join('')}
+    </div>
+    <div class="row">
+      <input type="text" id="chatInput" placeholder="Ask AI about investments, loans, buffer cash..." onkeypress="if(event.key==='Enter')sendChat()">
+      <button class="btn" onclick="sendChat()">Send</button>
+    </div>
+  </div>`;
+}
 
 const FIX=['Rent','Bills','EMI'],EM={Food:'🍔',Petrol:'⛽',Transport:'🚌',Shopping:'🛍️',Health:'💊',Fun:'🎬',Other:'🧩'};
 const dayTotal=d=>sum(S.tx.filter(x=>x.d==d&&x.t=='expense'&&!FIX.includes(x.c)));
@@ -420,154 +512,317 @@ const A = {
       {k:'n', l:'Investment Name (e.g. Nifty SIP, KSFE Chitty, PostOffice)'},
       {k:'type', l:'Investment Type', o:[['SIP / Equity','SIP / Equity'],['PPF / Debt','PPF / Debt'],['FD / RD','FD / RD'],['Lumpsum / Fixed Maturity','Lumpsum / Fixed Maturity (KSFE, LIC, PostOffice)']]},
       {k:'val', l:'Currently Invested Amount / Corpus (₹)', t:'number', v:0},
-      {k:'a', l:'Monthly SIP Outflow (₹ if applicable)', t:'number', v:0},
-      {k:'maturityVal', l:'Expected Maturity / Return Amount (₹ if known)', t:'number', v:0},
-      {k:'rate', l:'Expected Return % p.a. (if not fixed maturity)', t:'number', v:12},
-      {k:'invYears', l:'Active Investing Duration (Years)', t:'number', v:5},
-      {k:'waitYears', l:'Waiting / Holding Period (Years)', t:'number', v:5},
-      {k:'b', l:'Debited Bank', o:bankOpts()}
+      {k:'a', l:'Monthly SIP Outflow (₹) (0 for Lumpsum)', t:'number', v:0},
+      {k:'maturityVal', l:'Expected Fixed Maturity Return (₹) (For KSFE/PostOffice/LIC)', t:'number', v:0},
+      {k:'rate', l:'Expected Return (% p.a.)', t:'number', v:12},
+      {k:'invYears', l:'Active Investment Duration (Years)', t:'number', v:10},
+      {k:'waitYears', l:'Holding / Waiting Period (Years)', t:'number', v:10},
+      {k:'b', l:'Deduct Monthly SIP From', o:bankOpts()}
     ], v=>{
       if(v.n){
-        S.investments.push({id:'inv'+Date.now(), ...v, b:+v.b});
+        S.investments.push({
+          id:'inv'+Date.now(), n:v.n, type:v.type, val:v.val||0, a:v.a||0,
+          maturityVal:v.maturityVal||0, rate:v.rate||0, invYears:v.invYears||0,
+          waitYears:v.waitYears||0, b:+v.b
+        });
         save(); render();
       }
     });
   },
   editInvestment(i){
     const inv = S.investments[i];
-    form('Edit '+esc(inv.n), [
-      {k:'n', l:'Name', v:inv.n},
-      {k:'val', l:'Current Corpus Amount (₹)', t:'number', v:inv.val||0},
-      {k:'a', l:'Monthly SIP (₹)', t:'number', v:inv.a||0},
-      {k:'maturityVal', l:'Expected Maturity / Return Amount (₹)', t:'number', v:inv.maturityVal||0},
-      {k:'rate', l:'Expected Return % p.a.', t:'number', v:inv.rate||12},
-      {k:'invYears', l:'Investing Duration (Years)', t:'number', v:inv.invYears||5},
-      {k:'waitYears', l:'Waiting / Holding Period (Years)', t:'number', v:inv.waitYears||5}
+    form('Edit Investment', [
+      {k:'n', l:'Investment Name', v:inv.n},
+      {k:'type', l:'Investment Type', o:[['SIP / Equity','SIP / Equity'],['PPF / Debt','PPF / Debt'],['FD / RD','FD / RD'],['Lumpsum / Fixed Maturity','Lumpsum / Fixed Maturity']], v:inv.type},
+      {k:'val', l:'Currently Invested Amount / Corpus (₹)', t:'number', v:inv.val||0},
+      {k:'a', l:'Monthly SIP Outflow (₹)', t:'number', v:inv.a||0},
+      {k:'maturityVal', l:'Expected Fixed Maturity Return (₹)', t:'number', v:inv.maturityVal||0},
+      {k:'rate', l:'Expected Return (% p.a.)', t:'number', v:inv.rate||0},
+      {k:'invYears', l:'Active Investment Duration (Years)', t:'number', v:inv.invYears||0},
+      {k:'waitYears', l:'Holding / Waiting Period (Years)', t:'number', v:inv.waitYears||0},
+      {k:'b', l:'Deduct Monthly SIP From', o:bankOpts(), v:inv.b||0}
     ], v=>{
-      S.investments[i].n = v.n; S.investments[i].val = v.val; S.investments[i].a = v.a;
-      S.investments[i].maturityVal = v.maturityVal; S.investments[i].rate = v.rate; 
-      S.investments[i].invYears = v.invYears; S.investments[i].waitYears = v.waitYears;
+      S.investments[i] = {
+        ...inv, n:v.n, type:v.type, val:v.val||0, a:v.a||0,
+        maturityVal:v.maturityVal||0, rate:v.rate||0, invYears:v.invYears||0,
+        waitYears:v.waitYears||0, b:+v.b
+      };
       save(); render();
     });
   },
   payInvestment(i){
     const inv = S.investments[i];
-    if(inv.a > 0) {
+    if(inv.a > 0){
+      S.tx.push({id:'t'+Date.now(), t:'invest', a:inv.a, c:'Investments', b:inv.b||0, d:ld(), n:inv.n});
       inv.val = (inv.val || 0) + inv.a;
-      S.tx.push({id:'t'+Date.now(), t:'invest', a:inv.a, c:'Investments', b:inv.b, d:ld(), n:inv.n+' SIP'});
       save(); render();
-    } else {
-      alert('No monthly SIP amount set for this investment.');
     }
   },
   delInvestment(i){ S.investments.splice(i,1); save(); render(); },
+  addBank(){
+    form('Add Bank Account', [
+      {k:'n', l:'Bank Name'},
+      {k:'open', l:'Opening Balance (₹)', t:'number', v:0},
+      {k:'rate', l:'Interest Rate (% p.a.)', t:'number', v:3},
+      {k:'cash', l:'Cashback (% on spend)', t:'number', v:0},
+      {k:'role', l:'Account Role', o:ROLES.map(r=>[r,r])}
+    ], v=>{
+      if(v.n){
+        S.banks.push({n:v.n, open:v.open||0, rate:v.rate||0, cash:v.cash||0, min:0, role:v.role});
+        save(); render();
+      }
+    });
+  },
+  role(i, r){ if(S.banks[i]){ S.banks[i].role = r; save(); } },
   addLoan(){
-    if(!S.banks.length)return A.addBank();
-    form('Add Loan',[{k:'n',l:'Loan name'},{k:'orig',l:'Original loan (₹)',t:'number'},{k:'out',l:'Outstanding now (₹)',t:'number'},{k:'rate',l:'Interest % p.a.',t:'number'},{k:'emi',l:'Monthly EMI (₹)',t:'number'},{k:'day',l:'EMI date (1-28)',t:'number',v:5},{k:'b',l:'Debited from',o:bankOpts()}],v=>{if(v.n&&v.emi>0)S.loans.push({...v,b:+v.b,day:Math.min(28,Math.max(1,v.day||1)),orig:v.orig||v.out})});
+    form('Add Loan', [
+      {k:'n', l:'Loan Name'},
+      {k:'orig', l:'Original Loan Amount (₹)', t:'number'},
+      {k:'out', l:'Current Outstanding Balance (₹)', t:'number'},
+      {k:'rate', l:'Interest Rate (% p.a.)', t:'number', v:10},
+      {k:'emi', l:'Monthly EMI (₹)', t:'number'},
+      {k:'day', l:'EMI Due Day (1-31)', t:'number', v:5},
+      {k:'b', l:'Pay From Bank', o:bankOpts()}
+    ], v=>{
+      if(v.n && v.out > 0){
+        S.loans.push({n:v.n, orig:v.orig||v.out, out:v.out, rate:v.rate||10, emi:v.emi||0, day:v.day||5, b:+v.b});
+        save(); render();
+      }
+    });
   },
   updateLoan(i){
     const l = S.loans[i];
-    form('Update Loan: '+esc(l.n), [{k:'out', l:'Remaining Outstanding (₹)', t:'number', v:l.out},{k:'orig', l:'Original Loan Total (₹)', t:'number', v:l.orig||l.out},{k:'emi', l:'Monthly EMI (₹)', t:'number', v:l.emi},{k:'rate', l:'Interest Rate % p.a.', t:'number', v:l.rate}], v=>{
-      S.loans[i].out = Math.max(0, v.out); S.loans[i].orig = v.orig; S.loans[i].emi = v.emi; S.loans[i].rate = v.rate; save(); render();
+    form('Update Loan Balance', [
+      {k:'out', l:'New Outstanding Amount (₹)', t:'number', v:l.out},
+      {k:'emi', l:'Monthly EMI Amount (₹)', t:'number', v:l.emi}
+    ], v=>{
+      S.loans[i].out = v.out >= 0 ? v.out : l.out;
+      S.loans[i].emi = v.emi >= 0 ? v.emi : l.emi;
+      save(); render();
     });
   },
   pay(i){
-    const l=S.loans[i],pi=l.out*l.rate/1200,pp=Math.min(l.out,Math.max(0,l.emi-pi));
-    l.out=Math.max(0,l.out-pp); S.tx.push({id:'t'+Date.now(),t:'expense',a:l.emi,c:'EMI',b:l.b,d:ld(),n:l.n+' EMI'}); save(); render();
+    const l = S.loans[i];
+    if(l && l.out > 0){
+      const payAmt = Math.min(l.out, l.emi);
+      S.tx.push({id:'t'+Date.now(), t:'expense', a:payAmt, c:'EMI', b:l.b||0, d:ld(), n:l.n + ' EMI'});
+      l.out = Math.max(0, l.out - payAmt);
+      save(); render();
+    }
   },
   delL(i){ S.loans.splice(i,1); save(); render(); },
-  addBank(){ form('Add bank account',[{k:'n',l:'Bank name'},{k:'open',l:'Current balance (₹)',t:'number'},{k:'rate',l:'Interest % p.a.',t:'number'},{k:'cash',l:'Cashback %',t:'number'},{k:'min',l:'Minimum balance (₹)',t:'number'}],v=>{if(v.n)S.banks.push({...v,role:'Backup'})}); },
-  del(k,i){ S[k].splice(i,1); save(); render(); },
-  role(i,v){ S.banks[i].role=v; save(); },
-  risk(r){ S.risk=r; save(); render(); },
-  addGoal(){ form('Add goal',[{k:'n',l:'Goal'},{k:'t',l:'Target (₹)',t:'number'},{k:'s',l:'Saved so far (₹)',t:'number'}],v=>{if(v.n&&v.t>0)S.goals.push(v)}); },
-  fund(i){ form('Add to '+esc(S.goals[i].n),[{k:'a',l:'Amount (₹)',t:'number'}],v=>{S.goals[i].s+=v.a}); }
+  addGoal(){
+    form('Add Savings Goal', [
+      {k:'n', l:'Goal Name'},
+      {k:'t', l:'Target Amount (₹)', t:'number'},
+      {k:'s', l:'Already Saved Amount (₹)', t:'number', v:0}
+    ], v=>{
+      if(v.n && v.t > 0){
+        S.goals.push({n:v.n, t:v.t, s:v.s||0});
+        save(); render();
+      }
+    });
+  },
+  fund(i){
+    const g = S.goals[i];
+    form('Fund Goal: ' + g.n, [
+      {k:'a', l:'Amount to Add (₹)', t:'number'}
+    ], v=>{
+      if(v.a > 0){
+        g.s += v.a;
+        save(); render();
+      }
+    });
+  },
+  del(type, i){
+    if(S[type] && S[type][i]){
+      S[type].splice(i, 1);
+      save(); render();
+    }
+  }
 };
 
 function autoAssign(){
-  const b=S.banks; if(!b.length)return; b.forEach(x=>x.role='Backup');
-  const ex=b.reduce((m,x)=>x.cash>m.cash?x:m,b[0]); ex.role='Expense'; save(); render();
+  if(!S.banks.length) return;
+  S.banks.forEach(b => {
+    if(b.rate >= 6) b.role = 'Savings';
+    else if(b.cash > 0) b.role = 'Expense';
+    else b.role = 'Auto-debit';
+  });
+  save(); render();
 }
 
 function renderAuth(){
   const app = $('#app');
-  if (authStep === 'login') {
-    app.innerHTML = `<div class="card auth-container">
-      <h2>🔐 Unlock Finance Manager</h2>
-      <label>Email Address</label>
-      <input id="l_email" type="email" placeholder="you@example.com" value="${esc(tempEmail)}">
-      <label>Passcode</label>
-      <input id="l_pass" type="password" placeholder="Passcode" value="${esc(tempPass)}">
-      <button class="btn" style="width:100%;margin-top:16px" onclick="handleAuthSubmit()">Next (Authenticator Setup)</button>
-    </div>`;
-  } else if (authStep === 'totp_setup') {
-    const otpauth = `otpauth://totp/FinanceManager:${encodeURIComponent(tempEmail)}?secret=${tempSecret}&issuer=FinanceManager`;
-    const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(otpauth)}`;
-    app.innerHTML = `<div class="card auth-container">
-      <h2>🔑 Setup Authenticator App</h2>
-      <p class="mu">Scan QR code in Google Authenticator or Microsoft Authenticator:</p>
-      <div style="text-align:center;margin:12px 0"><img src="${qrUrl}" alt="Authenticator QR Code" style="border-radius:12px;border:1px solid var(--bd)"></div>
-      <small>Or manually enter secret key:</small>
-      <div class="secret-box">${tempSecret}</div>
-      <label>Enter 6-Digit Authenticator Code</label>
-      <input id="l_totp" type="text" placeholder="123456" maxlength="6">
-      <button class="btn" style="width:100%;margin-top:14px" onclick="handleTotpVerify()">Verify & Unlock</button>
-      <button class="btn s" style="width:100%;margin-top:8px" onclick="authStep='login';renderAuth();">Back</button>
-    </div>`;
-  } else if (authStep === 'totp_verify') {
-    app.innerHTML = `<div class="card auth-container">
-      <h2>🔑 Authenticator Verification</h2>
-      <p class="mu">Enter 6-digit code from Google or Microsoft Authenticator for <b>${esc(tempEmail)}</b>:</p>
-      <label>6-Digit Authenticator Code</label>
-      <input id="l_totp" type="text" placeholder="123456" maxlength="6">
-      <button class="btn" style="width:100%;margin-top:14px" onclick="handleTotpVerify()">Verify & Unlock</button>
-      <button class="btn s" style="width:100%;margin-top:8px" onclick="authStep='login';renderAuth();">Back</button>
-    </div>`;
+  if(authStep === 'login'){
+    app.innerHTML = `
+      <div class="card auth-container">
+        <h2>🔒 Sign In to Finance Manager</h2>
+        <label>Email Address</label>
+        <input type="email" id="authEmail" placeholder="you@example.com" value="${tempEmail}">
+        <label>Password</label>
+        <input type="password" id="authPass" placeholder="••••••••" value="${tempPass}">
+        <div style="margin-top:16px" class="row">
+          <button class="btn s" onclick="authStep='signup';render();">Need Account?</button>
+          <button class="btn" onclick="handleLogin()">Sign In</button>
+        </div>
+      </div>
+    `;
+  } else if(authStep === '2fa'){
+    app.innerHTML = `
+      <div class="card auth-container">
+        <h2>🔐 Two-Factor Authentication</h2>
+        <p class="mu">Enter the 6-digit code from your Authenticator app.</p>
+        <label>2FA Code</label>
+        <input type="text" id="totpCode" placeholder="123456" maxlength="6" style="font-size:20px;letter-spacing:4px;text-align:center">
+        <div style="margin-top:16px" class="row">
+          <button class="btn s" onclick="authStep='login';render();">Back</button>
+          <button class="btn" onclick="handleVerify2FA()">Verify & Login</button>
+        </div>
+      </div>
+    `;
+  } else if(authStep === 'signup'){
+    app.innerHTML = `
+      <div class="card auth-container">
+        <h2>✨ Create Account</h2>
+        <label>Email Address</label>
+        <input type="email" id="authEmail" placeholder="you@example.com">
+        <label>Password</label>
+        <input type="password" id="authPass" placeholder="••••••••">
+        <div style="margin-top:16px" class="row">
+          <button class="btn s" onclick="authStep='login';render();">Existing User?</button>
+          <button class="btn" onclick="handleSignup()">Next: Setup 2FA</button>
+        </div>
+      </div>
+    `;
+  } else if(authStep === 'setup2fa'){
+    app.innerHTML = `
+      <div class="card auth-container">
+        <h2>🛡️ Setup Authenticator</h2>
+        <p class="mu">Add this secret key to your Authenticator App (Google Authenticator, Authy, 1Password):</p>
+        <div class="secret-box">${tempSecret}</div>
+        <label>Enter Code from Authenticator to Confirm</label>
+        <input type="text" id="setupTotpCode" placeholder="123456" maxlength="6" style="font-size:20px;letter-spacing:4px;text-align:center">
+        <div style="margin-top:16px" class="row">
+          <button class="btn s" onclick="authStep='signup';render();">Back</button>
+          <button class="btn" onclick="handleConfirm2FASetup()">Complete Registration</button>
+        </div>
+      </div>
+    `;
   }
 }
 
-window.handleAuthSubmit = function(){
-  const email = $('#l_email')?.value.trim();
-  const pass = $('#l_pass')?.value.trim();
-  if(!email || !pass){ alert('Please enter email and passcode'); return; }
-  tempEmail = email; tempPass = pass;
-  let savedUser = null;
-  try{ savedUser = JSON.parse(localStorage.getItem('user_sec_' + tempEmail)); }catch(e){}
-  if(savedUser && savedUser.totpSecret){
-    tempSecret = savedUser.totpSecret;
-    authStep = 'totp_verify';
-  } else {
-    tempSecret = generateBase32Secret(16);
-    authStep = 'totp_setup';
-  }
-  renderAuth();
-};
+function handleLogin(){
+  const email = $('#authEmail').value.trim();
+  const pass = $('#authPass').value.trim();
+  if(!email || !pass){ alert('Please enter email and password'); return; }
 
-window.handleTotpVerify = async function(){
-  const code = $('#l_totp')?.value.trim();
-  if(!code || code.length !== 6){ alert('Please enter valid 6-digit code'); return; }
-  const valid = await verifyTotpToken(tempSecret, code);
-  if(!valid){ alert('Invalid Authenticator code. Check app time sync.'); return; }
-  localStorage.setItem('user_sec_' + tempEmail, JSON.stringify({ email: tempEmail, totpSecret: tempSecret }));
-  currentUser = { email: tempEmail };
-  accounts = [{id:'default', name:'Personal'}];
-  currentAccId = accounts[0].id;
-  loadState();
-  save();
+  const users = JSON.parse(localStorage.getItem('fm_users_v1')) || [];
+  const found = users.find(u => u.email === email && u.pass === pass);
+  if(!found){ alert('Invalid credentials'); return; }
+
+  tempEmail = email;
+  currentUser = found;
+  authStep = '2fa';
   render();
-};
+}
+
+async function handleVerify2FA(){
+  const code = $('#totpCode').value.trim();
+  if(!code){ alert('Enter 2FA Code'); return; }
+  const valid = await verifyTotpToken(currentUser.secret, code);
+  if(valid){
+    localStorage.setItem('fm_current_user', JSON.stringify(currentUser));
+    initAccounts();
+    render();
+  } else {
+    alert('Invalid 2FA code. Please check your authenticator app.');
+  }
+}
+
+function handleSignup(){
+  const email = $('#authEmail').value.trim();
+  const pass = $('#authPass').value.trim();
+  if(!email || !pass){ alert('Please fill all fields'); return; }
+
+  const users = JSON.parse(localStorage.getItem('fm_users_v1')) || [];
+  if(users.some(u => u.email === email)){ alert('Account already exists'); return; }
+
+  tempEmail = email;
+  tempPass = pass;
+  tempSecret = generateBase32Secret();
+  authStep = 'setup2fa';
+  render();
+}
+
+async function handleConfirm2FASetup(){
+  const code = $('#setupTotpCode').value.trim();
+  const valid = await verifyTotpToken(tempSecret, code);
+  if(valid){
+    const newUser = { email: tempEmail, pass: tempPass, secret: tempSecret };
+    const users = JSON.parse(localStorage.getItem('fm_users_v1')) || [];
+    users.push(newUser);
+    localStorage.setItem('fm_users_v1', JSON.stringify(users));
+    currentUser = newUser;
+    localStorage.setItem('fm_current_user', JSON.stringify(currentUser));
+    
+    // Create first default account
+    accounts = [{ id: 'acc_' + Date.now(), name: 'Personal Account' }];
+    currentAccId = accounts[0].id;
+    save();
+    loadState();
+    render();
+  } else {
+    alert('Invalid code. Ensure you scanned/entered the key in your authenticator app.');
+  }
+}
 
 function render(){
-  initAccounts();
-  if(!currentUser){ renderAuth(); return; }
-  const t=[['home','🏠','Home'],['tx','📅','Daily'],['banks','🏦','Banks'],['loans','💳','Loans'],['inv','📈','Invest'],['ai','✨','AI']];
-  $('#app').innerHTML=`<header><div><h1>💸 Finance Manager</h1><small>User: <b>${esc(currentUser.email)}</b></small></div><div class="row"><button class="btn s sm" onclick="A.logout()">Logout</button><button class="ic" onclick="A.theme()" style="margin-left:4px">🌓</button></div></header>` +
-  {home,tx:daily,banks,loans,inv:invest,ai:aiv}[view]() +
-  `<nav>${t.map(x=>`<button class="${view==x[0]?'on':''}" onclick="A.go('${x[0]}')"><span>${x[1]}</span>${x[2]}</button>`).join('')}</nav>` +
-  (view=='home'||view=='tx'?'<button class="fab" onclick="A.addTx()">+</button>':'');
+  if(!currentUser){
+    renderAuth();
+    return;
+  }
+
+  const app = $('#app');
+  let bodyContent = '';
+  if(view === 'home') bodyContent = home();
+  else if(view === 'daily') bodyContent = daily();
+  else if(view === 'loans') bodyContent = loans();
+  else if(view === 'banks') bodyContent = banks();
+  else if(view === 'inv') bodyContent = invest();
+  else if(view === 'ai') bodyContent = aiv();
+
+  app.innerHTML = `
+    <header>
+      <div>
+        <h1>Finance Manager</h1>
+        <small>${esc(currentUser.email)}</small>
+      </div>
+      <div class="row" style="gap:6px">
+        <button class="ic" onclick="A.theme()">🌓</button>
+        <button class="btn s sm" onclick="A.logout()">Logout</button>
+      </div>
+    </header>
+    ${bodyContent}
+    <button class="fab" onclick="A.addTx()">＋</button>
+    <nav>
+      <button class="${view=='home'?'on':''}" onclick="A.go('home')"><span>🏠</span>Home</button>
+      <button class="${view=='daily'?'on':''}" onclick="A.go('daily')"><span>📅</span>Daily</button>
+      <button class="${view=='loans'?'on':''}" onclick="A.go('loans')"><span>💳</span>Loans</button>
+      <button class="${view=='banks'?'on':''}" onclick="A.go('banks')"><span>🏦</span>Banks</button>
+      <button class="${view=='inv'?'on':''}" onclick="A.go('inv')"><span>📈</span>Invest</button>
+      <button class="${view=='ai'?'on':''}" onclick="A.go('ai')"><span>✨</span>AI Chat</button>
+    </nav>
+  `;
+
+  // Auto scroll chat to bottom when rendering AI view
+  if(view === 'ai') {
+    const chatBox = $('#chatBox');
+    if(chatBox) chatBox.scrollTop = chatBox.scrollHeight;
+  }
 }
 
-document.addEventListener('DOMContentLoaded', render);
+initAccounts();
 render();
 </script>
 </body>
