@@ -47,11 +47,11 @@ label{display:block;font-size:12px;color:var(--mu);margin:10px 0 4px}input,selec
 <div id="app"></div>
 <script>
 // ==========================================
-// SUPABASE CONFIGURATION (PRE-FILLED)
+// SUPABASE CONFIGURATION (RENAMED CLIENT TO AVOID CONFLICTS)
 // ==========================================
 const SUPABASE_URL = 'https://ivkqgsnitxrjpvmcjb.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_RSYGvDLkWGCeOPd2bkcR8A_kIDyQihW';
-const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 const $=s=>document.querySelector(s), K_ACC='fm_accounts_v10', ld=()=>{const d=new Date();return new Date(d.getTime()-d.getTimezoneOffset()*6e4).toISOString().slice(0,10)};
 const fmt=n=>(n<0?'-':'')+'₹'+Math.abs(Math.round(n)).toLocaleString('en-IN');
@@ -98,7 +98,7 @@ function seed(){
 // SUPABASE AUTH & DATA SYNC
 // ==========================================
 async function initAccounts(){
-  const { data: { session } } = await supabase.auth.getSession();
+  const { data: { session } } = await supabaseClient.auth.getSession();
   if (session && session.user) {
     currentUser = session.user;
     await loadStateFromSupabase();
@@ -112,9 +112,9 @@ async function loadStateFromSupabase(){
   if(!currentUser) return;
   const uid = currentUser.id;
 
-  let { data: accs } = await supabase.from('user_accounts').select('*').eq('user_id', uid);
+  let { data: accs } = await supabaseClient.from('user_accounts').select('*').eq('user_id', uid);
   if (!accs || accs.length === 0) {
-    const { data: newAcc } = await supabase.from('user_accounts').insert([{ user_id: uid, account_name: 'Personal', is_default: true }]).select().single();
+    const { data: newAcc } = await supabaseClient.from('user_accounts').insert([{ user_id: uid, account_name: 'Personal', is_default: true }]).select().single();
     accounts = [newAcc];
     currentAccId = newAcc?.id || 'default';
     
@@ -132,19 +132,19 @@ async function loadStateFromSupabase(){
   }
 
   const [banksRes, txRes, invRes, loanRes, goalRes, setRes] = await Promise.all([
-    supabase.from('banks').select('*').eq('user_id', uid),
-    supabase.from('transactions').select('*').eq('user_id', uid),
-    supabase.from('investments').select('*').eq('user_id', uid),
-    supabase.from('loans').select('*').eq('user_id', uid),
-    supabase.from('goals').select('*').eq('user_id', uid),
-    supabase.from('user_settings').select('*').eq('user_id', uid).maybeSingle()
+    supabaseClient.from('banks').select('*').eq('user_id', uid),
+    supabaseClient.from('transactions').select('*').eq('user_id', uid),
+    supabaseClient.from('investments').select('*').eq('user_id', uid),
+    supabaseClient.from('loans').select('*').eq('user_id', uid),
+    supabaseClient.from('goals').select('*').eq('user_id', uid),
+    supabaseClient.from('user_settings').select('*').eq('user_id', uid).maybeSingle()
   ]);
 
   S = {
     banks: (banksRes.data || []).map(b => ({ id: b.id, n: b.name, open: Number(b.open_balance), rate: Number(b.interest_rate), cash: Number(b.cashback_rate), min: Number(b.min_balance), role: b.role })),
     tx: (txRes.data || []).map(t => ({ id: t.id, t: t.type, a: Number(t.amount), c: t.category, b: t.bank_index, d: t.date, n: t.note })),
     investments: (invRes.data || []).map(i => ({ id: i.id, n: i.name, a: Number(i.amount), type: i.type, rate: Number(i.rate), val: Number(i.current_val), invYears: i.inv_years, waitYears: i.wait_years, maturityVal: Number(i.maturity_val), b: i.bank_index })),
-    loans: (loanRes.data || []).map(l => ({ id: l.id, n: l.name, orig: Number(l.original_amount), out: Number(l.outstanding_amount), rate: Number(l.interest_rate), emi: Number(l.emi_amount), day: l.due_day, b: l.bank_index })),
+    loans: (loanRes.data || []).map(l => ({ id: l.id, n: l.name, orig: Number(l.original_amount), out: Number(l.outstanding_amount), rate: Number(l.interest_rate), emi: Number(l.emi_amount), due_day: l.due_day, b: l.bank_index })),
     goals: (goalRes.data || []).map(g => ({ id: g.id, n: g.name, t: Number(g.target_amount), s: Number(g.saved_amount) })),
     dl: setRes.data?.daily_limit ? Number(setRes.data.daily_limit) : 1200,
     budgets: setRes.data?.budgets || {Food:10000,Petrol:4000,Transport:5000,Shopping:7000,Bills:4000,Health:2000,Fun:4000,Rent:15000},
@@ -163,7 +163,7 @@ async function syncAllToSupabase() {
   if (!currentUser || !S) return;
   const uid = currentUser.id;
 
-  await supabase.from('user_settings').upsert({
+  await supabaseClient.from('user_settings').upsert({
     user_id: uid,
     daily_limit: S.dl,
     budgets: S.budgets,
@@ -173,45 +173,45 @@ async function syncAllToSupabase() {
   });
 
   if (S.banks) {
-    await supabase.from('banks').delete().eq('user_id', uid);
+    await supabaseClient.from('banks').delete().eq('user_id', uid);
     if (S.banks.length) {
-      await supabase.from('banks').insert(S.banks.map(b => ({
+      await supabaseClient.from('banks').insert(S.banks.map(b => ({
         user_id: uid, name: b.n, open_balance: b.open, interest_rate: b.rate, cashback_rate: b.cash, min_balance: b.min||0, role: b.role
       })));
     }
   }
 
   if (S.tx) {
-    await supabase.from('transactions').delete().eq('user_id', uid);
+    await supabaseClient.from('transactions').delete().eq('user_id', uid);
     if (S.tx.length) {
-      await supabase.from('transactions').insert(S.tx.map(t => ({
+      await supabaseClient.from('transactions').insert(S.tx.map(t => ({
         user_id: uid, type: t.t, amount: t.a, category: t.c, bank_index: t.b||0, date: t.d, note: t.n
       })));
     }
   }
 
   if (S.investments) {
-    await supabase.from('investments').delete().eq('user_id', uid);
+    await supabaseClient.from('investments').delete().eq('user_id', uid);
     if (S.investments.length) {
-      await supabase.from('investments').insert(S.investments.map(i => ({
+      await supabaseClient.from('investments').insert(S.investments.map(i => ({
         user_id: uid, name: i.n, amount: i.a||0, type: i.type, rate: i.rate||0, current_val: i.val||0, inv_years: i.invYears||10, wait_years: i.waitYears||10, maturity_val: i.maturityVal||0, bank_index: i.b||0
       })));
     }
   }
 
   if (S.loans) {
-    await supabase.from('loans').delete().eq('user_id', uid);
+    await supabaseClient.from('loans').delete().eq('user_id', uid);
     if (S.loans.length) {
-      await supabase.from('loans').insert(S.loans.map(l => ({
+      await supabaseClient.from('loans').insert(S.loans.map(l => ({
         user_id: uid, name: l.n, original_amount: l.orig||l.out, outstanding_amount: l.out||0, interest_rate: l.rate||0, emi_amount: l.emi||0, due_day: l.day||5, bank_index: l.b||0
       })));
     }
   }
 
   if (S.goals) {
-    await supabase.from('goals').delete().eq('user_id', uid);
+    await supabaseClient.from('goals').delete().eq('user_id', uid);
     if (S.goals.length) {
-      await supabase.from('goals').insert(S.goals.map(g => ({
+      await supabaseClient.from('goals').insert(S.goals.map(g => ({
         user_id: uid, name: g.n, target_amount: g.t||0, saved_amount: g.s||0
       })));
     }
@@ -505,7 +505,7 @@ const bankOpts=()=>S.banks.map((b,i)=>[i,b.n]);
 
 const A = {
   async logout(){
-    await supabase.auth.signOut();
+    await supabaseClient.auth.signOut();
     currentUser = null; currentAccId = ''; S = null; authStep = 'login';
     render();
   },
@@ -715,15 +715,15 @@ async function handleLogin(){
   if(!email || !pass){ alert('Please enter email and password'); return; }
 
   tempEmail = email; tempPass = pass;
-  const { data, error } = await supabase.auth.signInWithPassword({ email, password: pass });
+  const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password: pass });
   if (error) { alert('Login error: ' + error.message); return; }
 
-  const factors = await supabase.auth.mfa.listFactors();
+  const factors = await supabaseClient.auth.mfa.listFactors();
   const totpFactor = factors.data?.totp?.find(f => f.status === 'verified');
   
   if (totpFactor) {
     tempFactorId = totpFactor.id;
-    const challenge = await supabase.auth.mfa.challenge({ factorId: tempFactorId });
+    const challenge = await supabaseClient.auth.mfa.challenge({ factorId: tempFactorId });
     if(challenge.error){ alert(challenge.error.message); return; }
     tempChallengeId = challenge.data.id;
     authStep = '2fa';
@@ -739,10 +739,10 @@ async function handleVerify2FA(){
   const code = $('#totpCode').value.trim();
   if(!code){ alert('Enter 2FA Code'); return; }
   
-  const verify = await supabase.auth.mfa.verify({ factorId: tempFactorId, challengeId: tempChallengeId, code });
+  const verify = await supabaseClient.auth.mfa.verify({ factorId: tempFactorId, challengeId: tempChallengeId, code });
   if (verify.error) { alert('Invalid 2FA code: ' + verify.error.message); return; }
 
-  currentUser = (await supabase.auth.getUser()).data.user;
+  currentUser = (await supabaseClient.auth.getUser()).data.user;
   await loadStateFromSupabase();
   render();
 }
@@ -752,10 +752,10 @@ async function handleSignup(){
   const pass = $('#authPass').value.trim();
   if(!email || !pass){ alert('Please fill all fields'); return; }
 
-  const { data, error } = await supabase.auth.signUp({ email, password: pass });
+  const { data, error } = await supabaseClient.auth.signUp({ email, password: pass });
   if (error) { alert('Registration error: ' + error.message); return; }
 
-  const enroll = await supabase.auth.mfa.enroll({ factorType: 'totp', friendlyName: 'FinanceManager Authenticator' });
+  const enroll = await supabaseClient.auth.mfa.enroll({ factorType: 'totp', friendlyName: 'FinanceManager Authenticator' });
   if (enroll.error) { alert('MFA error: ' + enroll.error.message); return; }
 
   tempFactorId = enroll.data.id;
@@ -766,13 +766,13 @@ async function handleSignup(){
 
 async function handleConfirm2FASetup(){
   const code = $('#setupTotpCode').value.trim();
-  const challenge = await supabase.auth.mfa.challenge({ factorId: tempFactorId });
+  const challenge = await supabaseClient.auth.mfa.challenge({ factorId: tempFactorId });
   if (challenge.error) { alert(challenge.error.message); return; }
   
-  const verify = await supabase.auth.mfa.verify({ factorId: tempFactorId, challengeId: challenge.data.id, code });
+  const verify = await supabaseClient.auth.mfa.verify({ factorId: tempFactorId, challengeId: challenge.data.id, code });
   if (verify.error) { alert('Invalid Code. Ensure you scanned the QR code into your authenticator app.'); return; }
 
-  currentUser = (await supabase.auth.getUser()).data.user;
+  currentUser = (await supabaseClient.auth.getUser()).data.user;
   await loadStateFromSupabase();
   render();
 }
