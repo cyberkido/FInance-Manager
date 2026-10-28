@@ -53,14 +53,14 @@ const SUPABASE_URL = 'https://ivkqgsnitxrxrjpvmcjb.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_RSYGvDLkWGCeOPd2bkcR8A_kIDyQihW';
 const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-const $=s=>document.querySelector(s), K_ACC='fm_accounts_v10', ld=()=>{const d=new Date();return new Date(d.getTime()-d.getTimezoneOffset()*6e4).toISOString().slice(0,10)};
+const $=s=>document.querySelector(s), ld=()=>{const d=new Date();return new Date(d.getTime()-d.getTimezoneOffset()*6e4).toISOString().slice(0,10)};
 const fmt=n=>(n<0?'-':'')+'₹'+Math.abs(Math.round(n)).toLocaleString('en-IN');
 const esc=s=>String(s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const iso=d=>d.toISOString().slice(0,10),mk=d=>d.slice(0,7);
 const CATS={Food:'#ff7675',Petrol:'#00cec9',Transport:'#74b9ff',Rent:'#a29bfe',Shopping:'#fd79a8',Bills:'#fdcb6e',Health:'#55efc4',Fun:'#e17055',EMI:'#e84393',Investments:'#00b8a0',Other:'#b2bec3'};
 const ROLES=['Expense','Savings','Investment','Auto-debit','Backup'];
 
-let accounts = [], currentAccId = '', currentUser = null, S = null, view='home', chat=[], busy=false;
+let accounts = [], currentAccId = '', currentUser = null, S = null, view='home', chat=[];
 let authStep = 'login', tempEmail = '', tempPass = '', qrCodeUrl = '', tempFactorId = '', tempChallengeId = '';
 let projTypeFilter = 'All';
 let summaryStart = ld(), summaryEnd = ld();
@@ -122,12 +122,7 @@ async function loadStateFromSupabase(){
     accounts = [newAcc];
     currentAccId = newAcc?.id || 'default';
     
-    const localData = localStorage.getItem('fm_state_' + localStorage.getItem('fm_current_acc'));
-    if(localData) {
-      try { S = JSON.parse(localData); } catch(e) { S = seed(); }
-    } else {
-      S = seed();
-    }
+    S = seed();
     await syncAllToSupabase();
     return;
   } else {
@@ -147,7 +142,7 @@ async function loadStateFromSupabase(){
   S = {
     banks: (banksRes.data || []).map(b => ({ id: b.id, n: b.name, open: Number(b.open_balance), rate: Number(b.interest_rate), cash: Number(b.cashback_rate), min: Number(b.min_balance), role: b.role })),
     tx: (txRes.data || []).map(t => ({ id: t.id, t: t.type, a: Number(t.amount), c: t.category, b: t.bank_index, d: t.date, n: t.note })),
-    investments: (invRes.data || []).map(i => ({ id: i.id, n: i.name, a: Number(i.amount), type: i.type, rate: Number(i.rate), val: Number(i.current_val), invYears: i.inv_years, waitYears: i.wait_years, maturityVal: Number(i.maturity_val), b: i.bank_index })),
+    investments: (invRes.data || []).map(i => ({ id: i.id, n: i.name, a: Number(i.amount), type: i.type, rate: Number(i.rate), val: Number(i.current_val), invYears: i.inv_years, waitYears: i.wait_years, maturity_val: Number(i.maturity_val), b: i.bank_index })),
     loans: (loanRes.data || []).map(l => ({ id: l.id, n: l.name, orig: Number(l.original_amount), out: Number(l.outstanding_amount), rate: Number(l.interest_rate), emi: Number(l.emi_amount), due_day: l.due_day, b: l.bank_index })),
     goals: (goalRes.data || []).map(g => ({ id: g.id, n: g.name, t: Number(g.target_amount), s: Number(g.saved_amount) })),
     dl: setRes.data?.daily_limit ? Number(setRes.data.daily_limit) : 1200,
@@ -711,7 +706,7 @@ function autoAssign(){
 }
 
 // ==========================================
-// SUPABASE AUTH UI & ACTIONS (WITH EVENT PREVENT DEFAULT)
+// SUPABASE AUTH UI & ACTIONS
 // ==========================================
 async function handleLogin(e){
   if(e) e.preventDefault();
@@ -740,7 +735,7 @@ async function handleLogin(e){
       render();
     }
   } catch(err) {
-    alert('Network error: Check ad-blockers or connection. ' + err.message);
+    alert('Network error: ' + err.message);
   }
 }
 
@@ -771,6 +766,9 @@ async function handleSignup(e){
     const { data, error } = await supabaseClient.auth.signUp({ email, password: pass });
     if (error) { alert('Registration error: ' + error.message); return; }
 
+    // Wait 500ms for session token to settle
+    await new Promise(r => setTimeout(r, 500));
+
     const enroll = await supabaseClient.auth.mfa.enroll({ factorType: 'totp', friendlyName: 'FinanceManager Authenticator' });
     if (enroll.error) { alert('MFA error: ' + enroll.error.message); return; }
 
@@ -779,7 +777,7 @@ async function handleSignup(e){
     authStep = 'setup2fa';
     render();
   } catch(err) {
-    alert('Network Error: Check extensions or try Incognito mode. ' + err.message);
+    alert('Network Error: ' + err.message);
   }
 }
 
