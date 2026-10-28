@@ -719,17 +719,21 @@ async function handleLogin(e){
     const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password: pass });
     if (error) { alert('Login error: ' + error.message); return; }
 
+    // List factors to check if 2FA (TOTP) is enrolled for this user
     const factors = await supabaseClient.auth.mfa.listFactors();
     const totpFactor = factors.data?.totp?.find(f => f.status === 'verified');
     
     if (totpFactor) {
+      // 2FA Exists: Save factor ID and request a challenge code
       tempFactorId = totpFactor.id;
       const challenge = await supabaseClient.auth.mfa.challenge({ factorId: tempFactorId });
       if(challenge.error){ alert(challenge.error.message); return; }
+      
       tempChallengeId = challenge.data.id;
-      authStep = '2fa';
+      authStep = '2fa'; // Switch UI to 2FA input screen
       render();
     } else {
+      // Fallback if no 2FA factor found
       currentUser = data.session.user;
       await loadStateFromSupabase();
       render();
