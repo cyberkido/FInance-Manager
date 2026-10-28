@@ -4,6 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Finance Manager</title>
+<!-- Supabase JS Client Library -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
 :root{--bg:#f3f5fb;--card:#fff;--tx:#141a2e;--mu:#6b7490;--bd:#e3e7f1;--ac:#6c5ce7;--ac2:#00b8a0;--rd:#ef476f;--am:#f2a31b;--sh:0 6px 24px rgba(40,50,110,.08);box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0c0f1d;--card:#171b2f;--tx:#eef0fa;--mu:#9099b8;--bd:#272c47;--sh:0 6px 24px rgba(0,0,0,.4)}}
@@ -44,53 +46,22 @@ label{display:block;font-size:12px;color:var(--mu);margin:10px 0 4px}input,selec
 <body>
 <div id="app"></div>
 <script>
-const $=s=>document.querySelector(s),K_ACC='fm_accounts_v10',ld=()=>{const d=new Date();return new Date(d.getTime()-d.getTimezoneOffset()*6e4).toISOString().slice(0,10)};
+// ==========================================
+// SUPABASE CONFIGURATION (PRE-FILLED)
+// ==========================================
+const SUPABASE_URL = 'https://ivkqgsnitxrjpvmcjb.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable_RSYGvDLkWGCeOPd2bkcR8A_kIDyQihW';
+const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+const $=s=>document.querySelector(s), K_ACC='fm_accounts_v10', ld=()=>{const d=new Date();return new Date(d.getTime()-d.getTimezoneOffset()*6e4).toISOString().slice(0,10)};
 const fmt=n=>(n<0?'-':'')+'₹'+Math.abs(Math.round(n)).toLocaleString('en-IN');
 const esc=s=>String(s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const iso=d=>d.toISOString().slice(0,10),mk=d=>d.slice(0,7);
 const CATS={Food:'#ff7675',Petrol:'#00cec9',Transport:'#74b9ff',Rent:'#a29bfe',Shopping:'#fd79a8',Bills:'#fdcb6e',Health:'#55efc4',Fun:'#e17055',EMI:'#e84393',Investments:'#00b8a0',Other:'#b2bec3'};
 const ROLES=['Expense','Savings','Investment','Auto-debit','Backup'];
-const RISK={conservative:[['Liquid fund / FD',45],['Debt / PPF',30],['Gold',15],['Index fund SIP',10]],balanced:[['Liquid fund / FD',20],['Debt / PPF',20],['Gold',15],['Index fund SIP',45]],aggressive:[['Liquid fund / FD',10],['Gold',10],['Index fund SIP',55],['Flexi/Mid-cap fund',25]]};
-const AC=['#6c5ce7','#00b8a0','#f2a31b','#ef476f','#4aa8ff'];
-
-// TOTP Algorithm
-const B32_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
-function generateBase32Secret(length = 16) {
-  let secret = '';
-  for (let i = 0; i < length; i++) { secret += B32_CHARS.charAt(Math.floor(Math.random() * B32_CHARS.length)); }
-  return secret;
-}
-function base32ToBytes(base32) {
-  let bits = '', bytes = [];
-  for (let i = 0; i < base32.length; i++) {
-    let val = B32_CHARS.indexOf(base32.charAt(i).toUpperCase());
-    if (val !== -1) bits += val.toString(2).padStart(5, '0');
-  }
-  for (let i = 0; i + 8 <= bits.length; i += 8) { bytes.push(parseInt(bits.substr(i, 8), 2)); }
-  return new Uint8Array(bytes);
-}
-async function getTotpToken(secret, timeStep = 30) {
-  const epoch = Math.floor(Date.now() / 1000);
-  const time = Math.floor(epoch / timeStep);
-  const buffer = new ArrayBuffer(8);
-  const view = new DataView(buffer);
-  view.setUint32(4, time, false);
-  const keyBytes = base32ToBytes(secret);
-  const cryptoKey = await crypto.subtle.importKey('raw', keyBytes, { name: 'HMAC', hash: 'SHA-1' }, false, ['sign']);
-  const signature = await crypto.subtle.sign('HMAC', cryptoKey, buffer);
-  const sigBytes = new Uint8Array(signature);
-  const offset = sigBytes[sigBytes.length - 1] & 0xf;
-  const binary = ((sigBytes[offset] & 0x7f) << 24) | ((sigBytes[offset + 1] & 0xff) << 16) | ((sigBytes[offset + 2] & 0xff) << 8) | (sigBytes[offset + 3] & 0xff);
-  let otp = (binary % 1000000).toString();
-  return otp.padStart(6, '0');
-}
-async function verifyTotpToken(secret, userToken) {
-  const currentToken = await getTotpToken(secret);
-  return currentToken === userToken.trim();
-}
 
 let accounts = [], currentAccId = '', currentUser = null, S = null, view='home', chat=[], busy=false;
-let authStep = 'login', tempEmail = '', tempPass = '', tempSecret = '';
+let authStep = 'login', tempEmail = '', tempPass = '', qrCodeUrl = '', tempFactorId = '', tempChallengeId = '';
 let projTypeFilter = 'All';
 let summaryStart = ld(), summaryEnd = ld();
 
@@ -123,37 +94,133 @@ function seed(){
   };
 }
 
-function initAccounts(){
-  try{
-    accounts = JSON.parse(localStorage.getItem(K_ACC)) || [];
-    currentUser = JSON.parse(localStorage.getItem('fm_current_user')) || null;
-  }catch(e){ accounts = []; currentUser = null; }
+// ==========================================
+// SUPABASE AUTH & DATA SYNC
+// ==========================================
+async function initAccounts(){
+  const { data: { session } } = await supabase.auth.getSession();
+  if (session && session.user) {
+    currentUser = session.user;
+    await loadStateFromSupabase();
+  } else {
+    currentUser = null;
+  }
+  render();
+}
 
-  if(currentUser){
-    if(!accounts.length){ accounts = [{id:'default', name:'Personal'}]; }
-    currentAccId = localStorage.getItem('fm_current_acc') || accounts[0].id;
-    loadState();
+async function loadStateFromSupabase(){
+  if(!currentUser) return;
+  const uid = currentUser.id;
+
+  let { data: accs } = await supabase.from('user_accounts').select('*').eq('user_id', uid);
+  if (!accs || accs.length === 0) {
+    const { data: newAcc } = await supabase.from('user_accounts').insert([{ user_id: uid, account_name: 'Personal', is_default: true }]).select().single();
+    accounts = [newAcc];
+    currentAccId = newAcc?.id || 'default';
+    
+    const localData = localStorage.getItem('fm_state_' + localStorage.getItem('fm_current_acc'));
+    if(localData) {
+      try { S = JSON.parse(localData); } catch(e) { S = seed(); }
+    } else {
+      S = seed();
+    }
+    await syncAllToSupabase();
+    return;
+  } else {
+    accounts = accs;
+    currentAccId = accounts[0].id;
+  }
+
+  const [banksRes, txRes, invRes, loanRes, goalRes, setRes] = await Promise.all([
+    supabase.from('banks').select('*').eq('user_id', uid),
+    supabase.from('transactions').select('*').eq('user_id', uid),
+    supabase.from('investments').select('*').eq('user_id', uid),
+    supabase.from('loans').select('*').eq('user_id', uid),
+    supabase.from('goals').select('*').eq('user_id', uid),
+    supabase.from('user_settings').select('*').eq('user_id', uid).maybeSingle()
+  ]);
+
+  S = {
+    banks: (banksRes.data || []).map(b => ({ id: b.id, n: b.name, open: Number(b.open_balance), rate: Number(b.interest_rate), cash: Number(b.cashback_rate), min: Number(b.min_balance), role: b.role })),
+    tx: (txRes.data || []).map(t => ({ id: t.id, t: t.type, a: Number(t.amount), c: t.category, b: t.bank_index, d: t.date, n: t.note })),
+    investments: (invRes.data || []).map(i => ({ id: i.id, n: i.name, a: Number(i.amount), type: i.type, rate: Number(i.rate), val: Number(i.current_val), invYears: i.inv_years, waitYears: i.wait_years, maturityVal: Number(i.maturity_val), b: i.bank_index })),
+    loans: (loanRes.data || []).map(l => ({ id: l.id, n: l.name, orig: Number(l.original_amount), out: Number(l.outstanding_amount), rate: Number(l.interest_rate), emi: Number(l.emi_amount), day: l.due_day, b: l.bank_index })),
+    goals: (goalRes.data || []).map(g => ({ id: g.id, n: g.name, t: Number(g.target_amount), s: Number(g.saved_amount) })),
+    dl: setRes.data?.daily_limit ? Number(setRes.data.daily_limit) : 1200,
+    budgets: setRes.data?.budgets || {Food:10000,Petrol:4000,Transport:5000,Shopping:7000,Bills:4000,Health:2000,Fun:4000,Rent:15000},
+    healthInsurance: setRes.data?.health_insurance || {n:'Health Insurance', premium:0, sumInsured:0, b:0},
+    termInsurance: setRes.data?.term_insurance || {n:'Term Insurance', premium:0, sumInsured:0, b:0},
+    bills:[{n:'Rent',a:15000,day:2,b:0},{n:'Phone & Internet',a:999,day:12,b:0}]
+  };
+}
+
+const save = async () => {
+  if (!currentUser || !S) return;
+  await syncAllToSupabase();
+};
+
+async function syncAllToSupabase() {
+  if (!currentUser || !S) return;
+  const uid = currentUser.id;
+
+  await supabase.from('user_settings').upsert({
+    user_id: uid,
+    daily_limit: S.dl,
+    budgets: S.budgets,
+    health_insurance: S.healthInsurance,
+    term_insurance: S.termInsurance,
+    updated_at: new Date().toISOString()
+  });
+
+  if (S.banks) {
+    await supabase.from('banks').delete().eq('user_id', uid);
+    if (S.banks.length) {
+      await supabase.from('banks').insert(S.banks.map(b => ({
+        user_id: uid, name: b.n, open_balance: b.open, interest_rate: b.rate, cashback_rate: b.cash, min_balance: b.min||0, role: b.role
+      })));
+    }
+  }
+
+  if (S.tx) {
+    await supabase.from('transactions').delete().eq('user_id', uid);
+    if (S.tx.length) {
+      await supabase.from('transactions').insert(S.tx.map(t => ({
+        user_id: uid, type: t.t, amount: t.a, category: t.c, bank_index: t.b||0, date: t.d, note: t.n
+      })));
+    }
+  }
+
+  if (S.investments) {
+    await supabase.from('investments').delete().eq('user_id', uid);
+    if (S.investments.length) {
+      await supabase.from('investments').insert(S.investments.map(i => ({
+        user_id: uid, name: i.n, amount: i.a||0, type: i.type, rate: i.rate||0, current_val: i.val||0, inv_years: i.invYears||10, wait_years: i.waitYears||10, maturity_val: i.maturityVal||0, bank_index: i.b||0
+      })));
+    }
+  }
+
+  if (S.loans) {
+    await supabase.from('loans').delete().eq('user_id', uid);
+    if (S.loans.length) {
+      await supabase.from('loans').insert(S.loans.map(l => ({
+        user_id: uid, name: l.n, original_amount: l.orig||l.out, outstanding_amount: l.out||0, interest_rate: l.rate||0, emi_amount: l.emi||0, due_day: l.day||5, bank_index: l.b||0
+      })));
+    }
+  }
+
+  if (S.goals) {
+    await supabase.from('goals').delete().eq('user_id', uid);
+    if (S.goals.length) {
+      await supabase.from('goals').insert(S.goals.map(g => ({
+        user_id: uid, name: g.n, target_amount: g.t||0, saved_amount: g.s||0
+      })));
+    }
   }
 }
 
-function loadState(){
-  try{ S = JSON.parse(localStorage.getItem('fm_state_' + currentAccId)); }catch(e){ S = null; }
-  if(!S){ S = seed(); }
-  S.loans = S.loans || []; S.investments = S.investments || []; S.dl = S.dl || 1200;
-  S.healthInsurance = S.healthInsurance || {n:'Health Insurance', premium:0, sumInsured:0, b:0};
-  S.termInsurance = S.termInsurance || {n:'Term Insurance', premium:0, sumInsured:0, b:0};
-  S.budgets = S.budgets || {Food:10000,Petrol:4000,Transport:5000,Shopping:7000,Bills:4000,Health:2000,Fun:4000,Rent:15000};
-}
-
-const save=()=>{
-  try{
-    if(currentAccId && S) localStorage.setItem('fm_state_' + currentAccId, JSON.stringify(S));
-    localStorage.setItem(K_ACC, JSON.stringify(accounts));
-    localStorage.setItem('fm_current_acc', currentAccId);
-    if(currentUser) localStorage.setItem('fm_current_user', JSON.stringify(currentUser));
-  }catch(e){}
-};
-
+// ==========================================
+// CALCULATIONS & HELPERS
+// ==========================================
 const bal=i=>S&&S.banks[i]?S.banks[i].open+S.tx.filter(x=>x.b==i).reduce((s,x)=>s+(x.t=='income'?x.a:-x.a),0):0;
 const sum=a=>a.reduce((s,x)=>s+x.a,0),cm=mk(ld());
 function months(n){const o=[],now=new Date();for(let i=n-1;i>=0;i--){const d=new Date(now.getFullYear(),now.getMonth()-i,1);o.push({k:mk(iso(new Date(d.getTime()-d.getTimezoneOffset()*6e4))),l:d.toLocaleString('en',{month:'short'})})}return o}
@@ -263,13 +330,11 @@ function banks(){
 function invest(){
   const c=calc(), invs=S.investments||[];
   
-  // Filter investments based on dropdown selection
   const filteredInvs = invs.filter(inv => {
     if(projTypeFilter === 'All') return true;
     return inv.type === projTypeFilter;
   });
 
-  // Calculate filtered projected future corpus
   let totalProjectedCorpus = 0;
   let totalCurrentVal = 0;
   let totalMonthlySIP = 0;
@@ -301,14 +366,12 @@ function invest(){
 
   const sipOutflow = invs.filter(i=>i.type=='SIP / Equity').reduce((s,i)=>s+i.a,0);
   const ppfOutflow = invs.filter(i=>i.type=='PPF / Debt').reduce((s,i)=>s+i.a,0);
-  const lumpsumOutflow = invs.filter(i=>i.type=='Lumpsum / Fixed Maturity').reduce((s,i)=>s+i.a,0);
 
   const health = S.healthInsurance || {n:'Health Insurance', premium:0, sumInsured:0};
   const term = S.termInsurance || {n:'Term Insurance', premium:0, sumInsured:0};
 
   return `<div class="card hero"><small>Current Total Net Worth</small><div class="big">${fmt(c.nw)}</div><small>Total Investment Value: ${fmt(c.invested)} · Monthly Outflows: ${fmt(c.monthlyInvestCommitment)}</small></div>
 
-  <!-- Dedicated Insurance Card -->
   <div class="card">
     <div class="row"><h2>🛡️ Health & Term Insurance</h2><button class="btn s sm" onclick="A.editInsurance()">⚙️ Edit Policies</button></div>
     <div class="item">
@@ -350,21 +413,14 @@ function generateAiResponse(input) {
   const activeLoans = (S.loans || []).filter(l => l.out > 0);
   const totalDebt = c.debt;
   const liquid = c.liquid;
-  const deploy = c.deploy;
 
-  // Extract amount mentioned in input if any
   let numMatch = text.match(/(\d+[\d,]*\s*k?)/i);
   let valMentioned = 0;
   if(numMatch) {
     let raw = numMatch[0].toLowerCase().replace(/,/g,'');
-    if(raw.includes('k')) {
-      valMentioned = parseFloat(raw) * 1000;
-    } else {
-      valMentioned = parseFloat(raw);
-    }
+    valMentioned = raw.includes('k') ? parseFloat(raw) * 1000 : parseFloat(raw);
   }
 
-  // Debt & Buffer Check Logic
   if(text.includes('buffer') || text.includes('invest') || text.includes('loan') || text.includes('emi') || text.includes('extra') || valMentioned > 0) {
     if(activeLoans.length > 0) {
       let mainLoan = activeLoans.reduce((prev, curr) => (prev.rate > curr.rate) ? prev : curr, activeLoans[0]);
@@ -389,7 +445,6 @@ function generateAiResponse(input) {
     return `Here is your quick summary:<br>• <b>Net Worth:</b> ${fmt(c.nw)}<br>• <b>Liquid Cash:</b> ${fmt(c.liquid)}<br>• <b>Investments:</b> ${fmt(c.invested)}<br>• <b>Total Debt:</b> ${fmt(c.debt)}<br>• <b>Monthly EMI:</b> ${fmt(c.emi)}`;
   }
 
-  // General default smart response based on profile
   if(activeLoans.length > 0) {
     return `Based on your profile, you have a total debt of <b>${fmt(totalDebt)}</b> (EMI: <b>${fmt(c.emi)}</b>) and <b>${fmt(c.invested)}</b> in investments.<br><br>Whenever you have extra buffer cash, prioritize paying off your outstanding loans to reduce your monthly EMI burden before adding to aggressive investments.`;
   } else {
@@ -406,7 +461,6 @@ function sendChat() {
   chat.push({ role: 'u', text: val });
   inputEl.value = '';
   
-  // Generate automated financial response based on current accounts/investments/EMIs
   const replyText = generateAiResponse(val);
   chat.push({ role: 'a', text: replyText });
 
@@ -443,16 +497,16 @@ const dayTotal=d=>sum(S.tx.filter(x=>x.d==d&&x.t=='expense'&&!FIX.includes(x.c))
 const nper=l=>{const r=l.rate/1200;if(l.emi<=0||l.out<=0)return 0;if(!r)return l.out/l.emi;const x=1-r*l.out/l.emi;return x<=0?Infinity:-Math.log(x)/Math.log(1+r)};
 
 function form(title,fields,fn){
-  const d=document.createElement('div');d.className='sheet';d.innerHTML=`<div><h2>${title}</h2>${fields.map(f=>`<label>${f.l}</label>${f.o?`<select id="f_${f.k}">${f.o.map(o=>`<option value="${o[0]??o}">${o[1]??o}</option>`).join('')}</select>`:`<input id="f_${f.k}" type="${f.t||'text'}" value="${f.v??''}" ${f.t=='number'?'inputmode="decimal"':''}>`}`).join('')}<div class="row" style="margin-top:16px"><button class="btn s" id="x">Cancel</button><button class="btn" id="ok">Save</button></div></div>`;
+  const d=document.createElement('div');d.className='sheet';d.innerHTML=`<div><h2>${title}</h2>${fields.map(f=>`<label>${f.l}</label>${f.o?`<select id="f_${f.k}">${f.o.map(o=>`<option value="${o[0]??o}" ${f.v===(o[0]??o)?'selected':''}>${o[1]??o}</option>`).join('')}</select>`:`<input id="f_${f.k}" type="${f.t||'text'}" value="${f.v??''}" ${f.t=='number'?'inputmode="decimal"':''}>`}`).join('')}<div class="row" style="margin-top:16px"><button class="btn s" id="x">Cancel</button><button class="btn" id="ok">Save</button></div></div>`;
   document.body.appendChild(d);d.onclick=e=>{if(e.target==d)d.remove()};d.querySelector('#x').onclick=()=>d.remove();
   d.querySelector('#ok').onclick=()=>{const v={};fields.forEach(f=>{const e=d.querySelector('#f_'+f.k);v[f.k]=f.t=='number'?parseFloat(e.value)||0:e.value});fn(v);save();d.remove();render()}
 }
 const bankOpts=()=>S.banks.map((b,i)=>[i,b.n]);
 
 const A = {
-  logout(){
+  async logout(){
+    await supabase.auth.signOut();
     currentUser = null; currentAccId = ''; S = null; authStep = 'login';
-    localStorage.removeItem('fm_current_user'); localStorage.removeItem('fm_current_acc');
     render();
   },
   go(v){ view = v; render(); },
@@ -652,6 +706,77 @@ function autoAssign(){
   save(); render();
 }
 
+// ==========================================
+// SUPABASE AUTH UI & ACTIONS
+// ==========================================
+async function handleLogin(){
+  const email = $('#authEmail').value.trim();
+  const pass = $('#authPass').value.trim();
+  if(!email || !pass){ alert('Please enter email and password'); return; }
+
+  tempEmail = email; tempPass = pass;
+  const { data, error } = await supabase.auth.signInWithPassword({ email, password: pass });
+  if (error) { alert('Login error: ' + error.message); return; }
+
+  const factors = await supabase.auth.mfa.listFactors();
+  const totpFactor = factors.data?.totp?.find(f => f.status === 'verified');
+  
+  if (totpFactor) {
+    tempFactorId = totpFactor.id;
+    const challenge = await supabase.auth.mfa.challenge({ factorId: tempFactorId });
+    if(challenge.error){ alert(challenge.error.message); return; }
+    tempChallengeId = challenge.data.id;
+    authStep = '2fa';
+    render();
+  } else {
+    currentUser = data.session.user;
+    await loadStateFromSupabase();
+    render();
+  }
+}
+
+async function handleVerify2FA(){
+  const code = $('#totpCode').value.trim();
+  if(!code){ alert('Enter 2FA Code'); return; }
+  
+  const verify = await supabase.auth.mfa.verify({ factorId: tempFactorId, challengeId: tempChallengeId, code });
+  if (verify.error) { alert('Invalid 2FA code: ' + verify.error.message); return; }
+
+  currentUser = (await supabase.auth.getUser()).data.user;
+  await loadStateFromSupabase();
+  render();
+}
+
+async function handleSignup(){
+  const email = $('#authEmail').value.trim();
+  const pass = $('#authPass').value.trim();
+  if(!email || !pass){ alert('Please fill all fields'); return; }
+
+  const { data, error } = await supabase.auth.signUp({ email, password: pass });
+  if (error) { alert('Registration error: ' + error.message); return; }
+
+  const enroll = await supabase.auth.mfa.enroll({ factorType: 'totp', friendlyName: 'FinanceManager Authenticator' });
+  if (enroll.error) { alert('MFA error: ' + enroll.error.message); return; }
+
+  tempFactorId = enroll.data.id;
+  qrCodeUrl = enroll.data.totp.qr_code;
+  authStep = 'setup2fa';
+  render();
+}
+
+async function handleConfirm2FASetup(){
+  const code = $('#setupTotpCode').value.trim();
+  const challenge = await supabase.auth.mfa.challenge({ factorId: tempFactorId });
+  if (challenge.error) { alert(challenge.error.message); return; }
+  
+  const verify = await supabase.auth.mfa.verify({ factorId: tempFactorId, challengeId: challenge.data.id, code });
+  if (verify.error) { alert('Invalid Code. Ensure you scanned the QR code into your authenticator app.'); return; }
+
+  currentUser = (await supabase.auth.getUser()).data.user;
+  await loadStateFromSupabase();
+  render();
+}
+
 function renderAuth(){
   const app = $('#app');
   if(authStep === 'login'){
@@ -697,10 +822,10 @@ function renderAuth(){
     `;
   } else if(authStep === 'setup2fa'){
     app.innerHTML = `
-      <div class="card auth-container">
+      <div class="card auth-container" style="text-align:center">
         <h2>🛡️ Setup Authenticator</h2>
-        <p class="mu">Add this secret key to your Authenticator App (Google Authenticator, Authy, 1Password):</p>
-        <div class="secret-box">${tempSecret}</div>
+        <p class="mu">Scan this QR code with Google Authenticator, Authy, or 1Password:</p>
+        <div style="background:#fff;padding:10px;display:inline-block;border-radius:10px;margin:10px 0"><img src="${qrCodeUrl}" alt="2FA QR Code" style="width:180px;height:180px"></div>
         <label>Enter Code from Authenticator to Confirm</label>
         <input type="text" id="setupTotpCode" placeholder="123456" maxlength="6" style="font-size:20px;letter-spacing:4px;text-align:center">
         <div style="margin-top:16px" class="row">
@@ -709,71 +834,6 @@ function renderAuth(){
         </div>
       </div>
     `;
-  }
-}
-
-function handleLogin(){
-  const email = $('#authEmail').value.trim();
-  const pass = $('#authPass').value.trim();
-  if(!email || !pass){ alert('Please enter email and password'); return; }
-
-  const users = JSON.parse(localStorage.getItem('fm_users_v1')) || [];
-  const found = users.find(u => u.email === email && u.pass === pass);
-  if(!found){ alert('Invalid credentials'); return; }
-
-  tempEmail = email;
-  currentUser = found;
-  authStep = '2fa';
-  render();
-}
-
-async function handleVerify2FA(){
-  const code = $('#totpCode').value.trim();
-  if(!code){ alert('Enter 2FA Code'); return; }
-  const valid = await verifyTotpToken(currentUser.secret, code);
-  if(valid){
-    localStorage.setItem('fm_current_user', JSON.stringify(currentUser));
-    initAccounts();
-    render();
-  } else {
-    alert('Invalid 2FA code. Please check your authenticator app.');
-  }
-}
-
-function handleSignup(){
-  const email = $('#authEmail').value.trim();
-  const pass = $('#authPass').value.trim();
-  if(!email || !pass){ alert('Please fill all fields'); return; }
-
-  const users = JSON.parse(localStorage.getItem('fm_users_v1')) || [];
-  if(users.some(u => u.email === email)){ alert('Account already exists'); return; }
-
-  tempEmail = email;
-  tempPass = pass;
-  tempSecret = generateBase32Secret();
-  authStep = 'setup2fa';
-  render();
-}
-
-async function handleConfirm2FASetup(){
-  const code = $('#setupTotpCode').value.trim();
-  const valid = await verifyTotpToken(tempSecret, code);
-  if(valid){
-    const newUser = { email: tempEmail, pass: tempPass, secret: tempSecret };
-    const users = JSON.parse(localStorage.getItem('fm_users_v1')) || [];
-    users.push(newUser);
-    localStorage.setItem('fm_users_v1', JSON.stringify(users));
-    currentUser = newUser;
-    localStorage.setItem('fm_current_user', JSON.stringify(currentUser));
-    
-    // Create first default account
-    accounts = [{ id: 'acc_' + Date.now(), name: 'Personal Account' }];
-    currentAccId = accounts[0].id;
-    save();
-    loadState();
-    render();
-  } else {
-    alert('Invalid code. Ensure you scanned/entered the key in your authenticator app.');
   }
 }
 
@@ -815,15 +875,13 @@ function render(){
     </nav>
   `;
 
-  // Auto scroll chat to bottom when rendering AI view
   if(view === 'ai') {
     const chatBox = $('#chatBox');
     if(chatBox) chatBox.scrollTop = chatBox.scrollHeight;
   }
 }
 
-initAccounts();
-render();
+window.addEventListener('DOMContentLoaded', initAccounts);
 </script>
 </body>
 </html>
