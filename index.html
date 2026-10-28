@@ -47,7 +47,7 @@ label{display:block;font-size:12px;color:var(--mu);margin:10px 0 4px}input,selec
 <div id="app"></div>
 <script>
 // ==========================================
-// SUPABASE CONFIGURATION (RENAMED CLIENT TO AVOID CONFLICTS)
+// SUPABASE CONFIGURATION
 // ==========================================
 const SUPABASE_URL = 'https://ivkqgsnitxrjpvmcjb.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_RSYGvDLkWGCeOPd2bkcR8A_kIDyQihW';
@@ -98,12 +98,16 @@ function seed(){
 // SUPABASE AUTH & DATA SYNC
 // ==========================================
 async function initAccounts(){
-  const { data: { session } } = await supabaseClient.auth.getSession();
-  if (session && session.user) {
-    currentUser = session.user;
-    await loadStateFromSupabase();
-  } else {
-    currentUser = null;
+  try {
+    const { data: { session } } = await supabaseClient.auth.getSession();
+    if (session && session.user) {
+      currentUser = session.user;
+      await loadStateFromSupabase();
+    } else {
+      currentUser = null;
+    }
+  } catch(e) {
+    console.error(e);
   }
   render();
 }
@@ -707,132 +711,152 @@ function autoAssign(){
 }
 
 // ==========================================
-// SUPABASE AUTH UI & ACTIONS
+// SUPABASE AUTH UI & ACTIONS (WITH EVENT PREVENT DEFAULT)
 // ==========================================
-async function handleLogin(){
+async function handleLogin(e){
+  if(e) e.preventDefault();
   const email = $('#authEmail').value.trim();
   const pass = $('#authPass').value.trim();
   if(!email || !pass){ alert('Please enter email and password'); return; }
 
   tempEmail = email; tempPass = pass;
-  const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password: pass });
-  if (error) { alert('Login error: ' + error.message); return; }
+  try {
+    const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password: pass });
+    if (error) { alert('Login error: ' + error.message); return; }
 
-  const factors = await supabaseClient.auth.mfa.listFactors();
-  const totpFactor = factors.data?.totp?.find(f => f.status === 'verified');
-  
-  if (totpFactor) {
-    tempFactorId = totpFactor.id;
-    const challenge = await supabaseClient.auth.mfa.challenge({ factorId: tempFactorId });
-    if(challenge.error){ alert(challenge.error.message); return; }
-    tempChallengeId = challenge.data.id;
-    authStep = '2fa';
-    render();
-  } else {
-    currentUser = data.session.user;
-    await loadStateFromSupabase();
-    render();
+    const factors = await supabaseClient.auth.mfa.listFactors();
+    const totpFactor = factors.data?.totp?.find(f => f.status === 'verified');
+    
+    if (totpFactor) {
+      tempFactorId = totpFactor.id;
+      const challenge = await supabaseClient.auth.mfa.challenge({ factorId: tempFactorId });
+      if(challenge.error){ alert(challenge.error.message); return; }
+      tempChallengeId = challenge.data.id;
+      authStep = '2fa';
+      render();
+    } else {
+      currentUser = data.session.user;
+      await loadStateFromSupabase();
+      render();
+    }
+  } catch(err) {
+    alert('Network error: Check ad-blockers or connection. ' + err.message);
   }
 }
 
-async function handleVerify2FA(){
+async function handleVerify2FA(e){
+  if(e) e.preventDefault();
   const code = $('#totpCode').value.trim();
   if(!code){ alert('Enter 2FA Code'); return; }
   
-  const verify = await supabaseClient.auth.mfa.verify({ factorId: tempFactorId, challengeId: tempChallengeId, code });
-  if (verify.error) { alert('Invalid 2FA code: ' + verify.error.message); return; }
+  try {
+    const verify = await supabaseClient.auth.mfa.verify({ factorId: tempFactorId, challengeId: tempChallengeId, code });
+    if (verify.error) { alert('Invalid 2FA code: ' + verify.error.message); return; }
 
-  currentUser = (await supabaseClient.auth.getUser()).data.user;
-  await loadStateFromSupabase();
-  render();
+    currentUser = (await supabaseClient.auth.getUser()).data.user;
+    await loadStateFromSupabase();
+    render();
+  } catch(err) {
+    alert('Network Error: ' + err.message);
+  }
 }
 
-async function handleSignup(){
+async function handleSignup(e){
+  if(e) e.preventDefault();
   const email = $('#authEmail').value.trim();
   const pass = $('#authPass').value.trim();
   if(!email || !pass){ alert('Please fill all fields'); return; }
 
-  const { data, error } = await supabaseClient.auth.signUp({ email, password: pass });
-  if (error) { alert('Registration error: ' + error.message); return; }
+  try {
+    const { data, error } = await supabaseClient.auth.signUp({ email, password: pass });
+    if (error) { alert('Registration error: ' + error.message); return; }
 
-  const enroll = await supabaseClient.auth.mfa.enroll({ factorType: 'totp', friendlyName: 'FinanceManager Authenticator' });
-  if (enroll.error) { alert('MFA error: ' + enroll.error.message); return; }
+    const enroll = await supabaseClient.auth.mfa.enroll({ factorType: 'totp', friendlyName: 'FinanceManager Authenticator' });
+    if (enroll.error) { alert('MFA error: ' + enroll.error.message); return; }
 
-  tempFactorId = enroll.data.id;
-  qrCodeUrl = enroll.data.totp.qr_code;
-  authStep = 'setup2fa';
-  render();
+    tempFactorId = enroll.data.id;
+    qrCodeUrl = enroll.data.totp.qr_code;
+    authStep = 'setup2fa';
+    render();
+  } catch(err) {
+    alert('Network Error: Check extensions or try Incognito mode. ' + err.message);
+  }
 }
 
-async function handleConfirm2FASetup(){
+async function handleConfirm2FASetup(e){
+  if(e) e.preventDefault();
   const code = $('#setupTotpCode').value.trim();
-  const challenge = await supabaseClient.auth.mfa.challenge({ factorId: tempFactorId });
-  if (challenge.error) { alert(challenge.error.message); return; }
-  
-  const verify = await supabaseClient.auth.mfa.verify({ factorId: tempFactorId, challengeId: challenge.data.id, code });
-  if (verify.error) { alert('Invalid Code. Ensure you scanned the QR code into your authenticator app.'); return; }
+  try {
+    const challenge = await supabaseClient.auth.mfa.challenge({ factorId: tempFactorId });
+    if (challenge.error) { alert(challenge.error.message); return; }
+    
+    const verify = await supabaseClient.auth.mfa.verify({ factorId: tempFactorId, challengeId: challenge.data.id, code });
+    if (verify.error) { alert('Invalid Code. Ensure you scanned the QR code into your authenticator app.'); return; }
 
-  currentUser = (await supabaseClient.auth.getUser()).data.user;
-  await loadStateFromSupabase();
-  render();
+    currentUser = (await supabaseClient.auth.getUser()).data.user;
+    await loadStateFromSupabase();
+    render();
+  } catch(err) {
+    alert('Network Error: ' + err.message);
+  }
 }
 
 function renderAuth(){
   const app = $('#app');
   if(authStep === 'login'){
     app.innerHTML = `
-      <div class="card auth-container">
+      <form class="card auth-container" onsubmit="handleLogin(event)">
         <h2>🔒 Sign In to Finance Manager</h2>
         <label>Email Address</label>
-        <input type="email" id="authEmail" placeholder="you@example.com" value="${tempEmail}">
+        <input type="email" id="authEmail" placeholder="you@example.com" value="${tempEmail}" required>
         <label>Password</label>
-        <input type="password" id="authPass" placeholder="••••••••" value="${tempPass}">
+        <input type="password" id="authPass" placeholder="••••••••" value="${tempPass}" required>
         <div style="margin-top:16px" class="row">
-          <button class="btn s" onclick="authStep='signup';render();">Need Account?</button>
-          <button class="btn" onclick="handleLogin()">Sign In</button>
+          <button type="button" class="btn s" onclick="authStep='signup';render();">Need Account?</button>
+          <button type="submit" class="btn">Sign In</button>
         </div>
-      </div>
+      </form>
     `;
   } else if(authStep === '2fa'){
     app.innerHTML = `
-      <div class="card auth-container">
+      <form class="card auth-container" onsubmit="handleVerify2FA(event)">
         <h2>🔐 Two-Factor Authentication</h2>
         <p class="mu">Enter the 6-digit code from your Authenticator app.</p>
         <label>2FA Code</label>
-        <input type="text" id="totpCode" placeholder="123456" maxlength="6" style="font-size:20px;letter-spacing:4px;text-align:center">
+        <input type="text" id="totpCode" placeholder="123456" maxlength="6" style="font-size:20px;letter-spacing:4px;text-align:center" required>
         <div style="margin-top:16px" class="row">
-          <button class="btn s" onclick="authStep='login';render();">Back</button>
-          <button class="btn" onclick="handleVerify2FA()">Verify & Login</button>
+          <button type="button" class="btn s" onclick="authStep='login';render();">Back</button>
+          <button type="submit" class="btn">Verify & Login</button>
         </div>
-      </div>
+      </form>
     `;
   } else if(authStep === 'signup'){
     app.innerHTML = `
-      <div class="card auth-container">
+      <form class="card auth-container" onsubmit="handleSignup(event)">
         <h2>✨ Create Account</h2>
         <label>Email Address</label>
-        <input type="email" id="authEmail" placeholder="you@example.com">
+        <input type="email" id="authEmail" placeholder="you@example.com" required>
         <label>Password</label>
-        <input type="password" id="authPass" placeholder="••••••••">
+        <input type="password" id="authPass" placeholder="••••••••" required>
         <div style="margin-top:16px" class="row">
-          <button class="btn s" onclick="authStep='login';render();">Existing User?</button>
-          <button class="btn" onclick="handleSignup()">Next: Setup 2FA</button>
+          <button type="button" class="btn s" onclick="authStep='login';render();">Existing User?</button>
+          <button type="submit" class="btn">Next: Setup 2FA</button>
         </div>
-      </div>
+      </form>
     `;
   } else if(authStep === 'setup2fa'){
     app.innerHTML = `
-      <div class="card auth-container" style="text-align:center">
+      <form class="card auth-container" style="text-align:center" onsubmit="handleConfirm2FASetup(event)">
         <h2>🛡️ Setup Authenticator</h2>
         <p class="mu">Scan this QR code with Google Authenticator, Authy, or 1Password:</p>
         <div style="background:#fff;padding:10px;display:inline-block;border-radius:10px;margin:10px 0"><img src="${qrCodeUrl}" alt="2FA QR Code" style="width:180px;height:180px"></div>
         <label>Enter Code from Authenticator to Confirm</label>
-        <input type="text" id="setupTotpCode" placeholder="123456" maxlength="6" style="font-size:20px;letter-spacing:4px;text-align:center">
+        <input type="text" id="setupTotpCode" placeholder="123456" maxlength="6" style="font-size:20px;letter-spacing:4px;text-align:center" required>
         <div style="margin-top:16px" class="row">
-          <button class="btn s" onclick="authStep='signup';render();">Back</button>
-          <button class="btn" onclick="handleConfirm2FASetup()">Complete Registration</button>
+          <button type="button" class="btn s" onclick="authStep='signup';render();">Back</button>
+          <button type="submit" class="btn">Complete Registration</button>
         </div>
-      </div>
+      </form>
     `;
   }
 }
